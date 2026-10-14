@@ -744,7 +744,7 @@ The source code for this project is available on GitHub at https://github.com/mr
 
 https://github.com/features/actions[GitHub Actions] is continually testing this project with configuration from its https://github.com/mraible/jhipster9-demo/blob/main/.github/workflows/main.yml[`.github/workflows/main.yml`] file. This file was generated using `jhipster ci-cd`. I selected GitHub Actions and Snyk when prompted. If you want Snyk to scan your dependencies, add a `SNYK_TOKEN` in GitHub > **Settings** > **Secrets and Variables** > **Actions** > **Repository secrets**.
 
-It's a good idea to keep your dependencies up-to-date for security reasons. I recommend using https://docs.github.com/en/code-security/dependabot[Dependabot] and adding a `.github/dependabot.yml` file with the following YAML. The `angular` group makes Dependabot update all Angular packages in one pull request. Otherwise, it bumps them one at a time, and those builds fail because Angular packages need matching versions.
+It's a good idea to keep your dependencies up-to-date for security reasons. I recommend using https://docs.github.com/en/code-security/dependabot[Dependabot] and adding a `.github/dependabot.yml` file with the following YAML. The groups keep the number of pull requests manageable: one for Angular, one for other npm minor and patch updates, and one for Maven. Without the `angular` group, Dependabot bumps Angular packages one at a time, and those builds fail because Angular packages need matching versions. Major version updates still get their own pull requests.
 
 [source,yaml]
 ----
@@ -754,6 +754,10 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
@@ -763,10 +767,23 @@ updates:
         patterns:
           - "@angular/*"
           - "@angular-devkit/*"
+      npm-minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
   - package-ecosystem: "maven"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      maven-minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 ----
 
 == JHipster: Full Stack Platform for the Modern Developer

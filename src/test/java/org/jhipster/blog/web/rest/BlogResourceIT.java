@@ -97,6 +97,8 @@ class BlogResourceIT {
     @BeforeEach
     void initTest() {
         blog = createEntity();
+        // Blogs can only be managed by their owner, which is "user" for @WithMockUser
+        blog.setUser(userRepository.findOneByLogin("user").orElseThrow());
     }
 
     @AfterEach

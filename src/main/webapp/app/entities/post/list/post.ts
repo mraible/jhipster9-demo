@@ -14,7 +14,7 @@ import { Alert, AlertError } from 'app/shared/alert';
 import { FormatMediumDatetimePipe } from 'app/shared/date';
 import { type BlobType } from 'app/shared/jhipster/data-utils';
 import { TranslateDirective } from 'app/shared/language';
-import { SortByDirective, SortDirective, SortService, type SortState, sortStateSignal } from 'app/shared/sort';
+import { SortService, type SortState, sortStateSignal } from 'app/shared/sort';
 import { PostDeleteDialog } from '../delete/post-delete-dialog';
 import { IPost } from '../post.model';
 import { PostService } from '../service/post.service';
@@ -22,17 +22,7 @@ import { PostService } from '../service/post.service';
 @Component({
   selector: 'jhi-post',
   templateUrl: './post.html',
-  imports: [
-    RouterLink,
-    FontAwesomeModule,
-    AlertError,
-    Alert,
-    SortDirective,
-    SortByDirective,
-    TranslateDirective,
-    FormatMediumDatetimePipe,
-    InfiniteScrollDirective,
-  ],
+  imports: [RouterLink, FontAwesomeModule, AlertError, Alert, TranslateDirective, FormatMediumDatetimePipe, InfiniteScrollDirective],
 })
 export class Post {
   readonly posts = signal<IPost[]>([]);

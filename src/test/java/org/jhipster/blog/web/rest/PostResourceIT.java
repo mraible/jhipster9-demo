@@ -14,8 +14,11 @@ import java.util.ArrayList;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicLong;
 import org.jhipster.blog.IntegrationTest;
+import org.jhipster.blog.domain.Blog;
 import org.jhipster.blog.domain.Post;
+import org.jhipster.blog.repository.BlogRepository;
 import org.jhipster.blog.repository.PostRepository;
+import org.jhipster.blog.repository.UserRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -62,6 +65,12 @@ class PostResourceIT {
     @Autowired
     private PostRepository postRepository;
 
+    @Autowired
+    private BlogRepository blogRepository;
+
+    @Autowired
+    private UserRepository userRepository;
+
     @Mock
     private PostRepository postRepositoryMock;
 
@@ -98,6 +107,10 @@ class PostResourceIT {
     @BeforeEach
     void initTest() {
         post = createEntity();
+        // Posts can only be managed by the owner of their blog, which is "user" for @WithMockUser
+        Blog blog = BlogResourceIT.createEntity();
+        blog.setUser(userRepository.findOneByLogin("user").orElseThrow());
+        post.setBlog(blogRepository.saveAndFlush(blog));
     }
 
     @AfterEach

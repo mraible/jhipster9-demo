@@ -4,6 +4,10 @@ updates:
     directory: '/'
     schedule:
       interval: 'weekly'
+    groups:
+      github-actions:
+        patterns:
+          - '*'
   - package-ecosystem: 'npm'
     directory: '/'
     schedule:
@@ -13,7 +17,20 @@ updates:
         patterns:
           - '@angular/*'
           - '@angular-devkit/*'
+      npm-minor-and-patch:
+        patterns:
+          - '*'
+        update-types:
+          - 'minor'
+          - 'patch'
   - package-ecosystem: 'maven'
     directory: '/'
     schedule:
       interval: 'weekly'
+    groups:
+      maven-minor-and-patch:
+        patterns:
+          - '*'
+        update-types:
+          - 'minor'
+          - 'patch'

@@ -8,6 +8,11 @@ updates:
     directory: '/'
     schedule:
       interval: 'weekly'
+    groups:
+      angular:
+        patterns:
+          - '@angular/*'
+          - '@angular-devkit/*'
   - package-ecosystem: 'maven'
     directory: '/'
     schedule:

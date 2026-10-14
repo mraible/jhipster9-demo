@@ -96,12 +96,26 @@ The brackets at the end of each step indicate the alias's or IntelliJ Live Templ
 . Start PostgreSQL and run the JAR
 
   docker compose -f src/main/docker/postgresql.yml up -d
-  SPRING_DATASOURCE_USERNAME=blog java -jar target/blog-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod,secret-samples
+  java -jar target/blog-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod,secret-samples
 
-. Login to Heroku using `heroku login`
+. Login to Fly.io using `fly auth login` and create the app
 
-. Run `jhipster heroku`
+  fly apps create jhipster9-demo
 
-. When process completes, run `heroku open`
+. Build the image and push it to Fly's registry
+
+  npm run java:docker
+  fly auth docker
+  docker tag blog:latest registry.fly.io/jhipster9-demo:latest
+  docker push registry.fly.io/jhipster9-demo:latest
+
+. Create and attach PostgreSQL
+
+  fly postgres create --name jhipster9-demo-db --region dfw --initial-cluster-size 1 --vm-size shared-cpu-1x --volume-size 1
+  fly postgres attach jhipster9-demo-db -a jhipster9-demo
+
+. Set `SPRING_DATASOURCE_*` and `JHIPSTER_SECURITY_AUTHENTICATION_JWT_BASE64_SECRET` with `fly secrets set --stage`
+
+. Run `fly deploy --ha=false` and open https://jhipster9-demo.fly.dev
 
 . Fini!

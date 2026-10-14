@@ -1,0 +1,29 @@
+# Fly.io configuration for the JHipster 9 demo. See README.adoc > Deploy to the Cloud.
+app = 'jhipster9-demo'
+primary_region = 'dfw'
+
+[build]
+  image = 'registry.fly.io/jhipster9-demo:latest'
+
+[env]
+  SPRING_PROFILES_ACTIVE = 'prod'
+  _JAVA_OPTIONS = '-Xmx512m -Xms256m'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = '60s'
+    interval = '30s'
+    method = 'GET'
+    path = '/management/health'
+    timeout = '5s'
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1

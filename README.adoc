@@ -4,7 +4,7 @@
 :revnumber: 1.0
 :revdate: {docdate}
 :subject: JHipster
-:keywords: JHipster, Spring Boot, Angular, JWT, Authorization, Heroku
+:keywords: JHipster, Spring Boot, Angular, JWT, Authorization, Fly.io
 :icons: font
 :lang: en
 :language: javascript
@@ -667,23 +667,76 @@ Before deploying anywhere, you can try the production build locally. The `prod` 
 docker compose -f src/main/docker/postgresql.yml up -d
 ----
 
-Then, run the JAR. In JHipster 9, the prod configuration doesn't include a database username or the JWT secret. Set the username with an environment variable and add the `secret-samples` profile to use the sample JWT secret. This is the same thing `src/main/docker/app.yml` does.
+Then, run the JAR. In JHipster 9, the prod configuration doesn't include the database username or the JWT secret. They're in a separate `secret-samples` profile, so add it when you run the JAR. This is the same thing `src/main/docker/app.yml` does.
 
 ----
-SPRING_DATASOURCE_USERNAME=blog java -jar target/blog-0.0.1-SNAPSHOT.jar \
-  --spring.profiles.active=prod,secret-samples
+java -jar target/blog-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod,secret-samples
 ----
 
-WARNING: The `secret-samples` profile is only for trying things out. In a real production environment, set the `JHIPSTER_SECURITY_AUTHENTICATION_JWT_BASE64_SECRET` environment variable to your own secret.
+NOTE: The generated `README.md` says to run `java -jar target/*.jar`, which fails without this profile. I reported this in https://github.com/jhipster/generator-jhipster/issues/35515[jhipster/generator-jhipster#35515].
+
+WARNING: The `secret-samples` profile is only for trying things out. In a real production environment, use environment variables for the database credentials and set `JHIPSTER_SECURITY_AUTHENTICATION_JWT_BASE64_SECRET` to your own secret.
 
 Open http://localhost:8080 and sign in as `admin`.
 
 .JHipster 9 Demo running with the prod profile
 image::static/jhipster9-demo-prod.png[JHipster 9 Demo running with the prod profile, 800, scaledwidth=100%]
 
-To deploy this application to Heroku, log in with the https://devcenter.heroku.com/articles/heroku-cli[Heroku CLI] using `heroku login`. Then, run `jhipster heroku` as recommended in the https://www.jhipster.tech/heroku/[Deploying to Heroku] documentation. You'll be prompted for an application name, the type of deployment (I recommend "`Git (compile on Heroku)`"), and the Java version (21). When prompted to overwrite `pom.xml`, type **a**. When it finishes, run `heroku open` to see your app.
+=== Deploy to Fly.io
 
-NOTE: The Heroku generator provisions a Heroku Postgres database for your app, which is a paid add-on.
+https://fly.io[Fly.io] runs Docker images on lightweight VMs close to your users. JHipster doesn't have a Fly.io sub-generator, but it already builds a Docker image with https://github.com/GoogleContainerTools/jib[Jib], so it only takes a few commands.
+
+Install the https://fly.io/docs/flyctl/install/[Fly CLI] and log in.
+
+----
+brew install flyctl
+fly auth login
+----
+
+Create an app, then build the production image and push it to Fly's registry. The `fly.toml` in this project's root configures the app's region, memory, and health check.
+
+----
+fly apps create jhipster9-demo
+npm run java:docker
+fly auth docker
+docker tag blog:latest registry.fly.io/jhipster9-demo:latest
+docker push registry.fly.io/jhipster9-demo:latest
+----
+
+TIP: Jib can push to `registry.fly.io` directly with `jib:build`, but the upload failed with `Broken pipe` for me. Building to the local Docker daemon and pushing with `docker push` worked fine.
+
+Create a PostgreSQL database and attach it to your app. Attaching creates a database user and adds a `DATABASE_URL` secret to your app.
+
+----
+fly postgres create --name jhipster9-demo-db --region dfw \
+  --initial-cluster-size 1 --vm-size shared-cpu-1x --volume-size 1
+fly postgres attach jhipster9-demo-db -a jhipster9-demo
+----
+
+Spring Boot needs a JDBC URL, so convert the `postgres://user:password@host:5432/db` URL printed by the `attach` command into secrets that Spring Boot understands. Generate a new JWT secret too.
+
+----
+fly secrets set -a jhipster9-demo --stage \
+  SPRING_DATASOURCE_URL=jdbc:postgresql://jhipster9-demo-db.flycast:5432/jhipster9_demo?sslmode=disable \
+  SPRING_DATASOURCE_USERNAME=<user> \
+  SPRING_DATASOURCE_PASSWORD=<password> \
+  JHIPSTER_SECURITY_AUTHENTICATION_JWT_BASE64_SECRET=$(openssl rand -base64 64 | tr -d '\n')
+----
+
+Then deploy!
+
+----
+fly deploy --ha=false
+----
+
+When it finishes, open `https://jhipster9-demo.fly.dev` and sign in as `admin`. I was pleased to see it worked!
+
+.JHipster 9 Demo on Fly.io
+image::static/jhipster9-demo-fly.png[JHipster 9 Demo on Fly.io, 800, scaledwidth=100%]
+
+The app's machine stops when it's idle and starts again on the next request, thanks to `auto_stop_machines` in `fly.toml`. The database runs all the time, so it costs a few dollars a month. I deployed this demo on Fly's free trial and stopped it afterward, so it isn't running permanently.
+
+If you'd rather use Heroku, JHipster still has a `jhipster heroku` sub-generator. See https://www.jhipster.tech/heroku/[Deploying to Heroku] for more information.
 
 == Source Code, CI, and CD
 

@@ -1,0 +1,46 @@
+name: blog
+model_file: ./model.fga
+tuples:
+  - user: user:admin
+    relation: owner
+    object: blog:1
+  - user: user:user
+    relation: owner
+    object: blog:2
+  - user: blog:1
+    relation: parent
+    object: post:10
+  - user: blog:2
+    relation: parent
+    object: post:20
+tests:
+  - name: owners can view and edit their own blogs and posts
+    check:
+      - user: user:admin
+        object: blog:1
+        assertions:
+          viewer: true
+          editor: true
+      - user: user:user
+        object: post:20
+        assertions:
+          viewer: true
+          editor: true
+  - name: users can't see each other's blogs or posts
+    check:
+      - user: user:user
+        object: blog:1
+        assertions:
+          viewer: false
+          editor: false
+      - user: user:admin
+        object: post:20
+        assertions:
+          viewer: false
+          editor: false
+    list_objects:
+      - user: user:user
+        type: post
+        assertions:
+          viewer:
+            - post:20

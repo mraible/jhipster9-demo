@@ -8,3 +8,7 @@ services:
     profiles:
       - ''
       - prod
+  openfga:
+    extends:
+      file: ./openfga.yml
+      service: openfga

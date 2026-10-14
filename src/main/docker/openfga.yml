@@ -1,0 +1,14 @@
+# This configuration is intended for development purpose, it's **your** responsibility to harden it for production
+name: blog
+services:
+  openfga:
+    image: openfga/openfga:v1.22.0
+    command: run
+    # The default in-memory datastore loses all tuples when the container stops
+    ports:
+      - 127.0.0.1:8090:8080
+    healthcheck:
+      test: ['CMD', '/usr/local/bin/grpc_health_probe', '-addr=openfga:8081']
+      interval: 5s
+      timeout: 5s
+      retries: 10

@@ -20,7 +20,14 @@
       "id": "ID",
       "name": "Name",
       "handle": "Handle",
-      "user": "User"
+      "user": "User",
+      "coAuthors": {
+        "title": "Co-authors",
+        "none": "None",
+        "login": "Login",
+        "add": "Add co-author",
+        "remove": "Remove {{ login }}"
+      }
     }
   }
 }

@@ -3,18 +3,26 @@
   "type_definitions": [
     { "type": "user" },
     {
-      "metadata": { "relations": { "editor": {}, "owner": { "directly_related_user_types": [{ "type": "user" }] }, "viewer": {} } },
+      "metadata": {
+        "relations": {
+          "editor": {},
+          "owner": { "directly_related_user_types": [{ "type": "user" }] },
+          "viewer": {},
+          "writer": { "directly_related_user_types": [{ "type": "user" }] }
+        }
+      },
       "relations": {
         "editor": { "computedUserset": { "relation": "owner" } },
         "owner": { "this": {} },
-        "viewer": { "computedUserset": { "relation": "owner" } }
+        "viewer": { "computedUserset": { "relation": "writer" } },
+        "writer": { "union": { "child": [{ "this": {} }, { "computedUserset": { "relation": "owner" } }] } }
       },
       "type": "blog"
     },
     {
       "metadata": { "relations": { "editor": {}, "parent": { "directly_related_user_types": [{ "type": "blog" }] }, "viewer": {} } },
       "relations": {
-        "editor": { "tupleToUserset": { "computedUserset": { "relation": "editor" }, "tupleset": { "relation": "parent" } } },
+        "editor": { "tupleToUserset": { "computedUserset": { "relation": "writer" }, "tupleset": { "relation": "parent" } } },
         "parent": { "this": {} },
         "viewer": { "tupleToUserset": { "computedUserset": { "relation": "viewer" }, "tupleset": { "relation": "parent" } } }
       },

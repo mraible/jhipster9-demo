@@ -13,6 +13,13 @@ import org.springframework.boot.test.context.SpringBootTest;
  */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
-@SpringBootTest(classes = { BlogApp.class, AsyncSyncConfiguration.class, org.jhipster.blog.config.JacksonHibernateConfiguration.class })
+@SpringBootTest(
+    classes = {
+        BlogApp.class,
+        AsyncSyncConfiguration.class,
+        org.jhipster.blog.config.JacksonHibernateConfiguration.class,
+        org.jhipster.blog.config.OpenFgaTestContainer.class,
+    }
+)
 @EmbeddedSQL
 public @interface IntegrationTest {}

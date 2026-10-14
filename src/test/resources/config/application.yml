@@ -95,3 +95,7 @@ management:
   health:
     mail:
       enabled: false
+
+# Overridden with the Testcontainers URL by OpenFgaTestContainer
+openfga:
+  api-url: http://localhost:8090

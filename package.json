@@ -108,7 +108,7 @@
     "@angular/build": "22.1.8",
     "@angular/cli": "22.1.8",
     "@angular/compiler-cli": "22.1.6",
-    "@angular/service-worker": "22.1.6",
+    "@angular/service-worker": "22.2.2",
     "@cypress/schematic": "6.0.0",
     "@eslint/js": "10.0.1",
     "@types/folder-hash": "4.0.4",

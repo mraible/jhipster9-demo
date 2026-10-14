@@ -56,6 +56,18 @@ export class BlogService extends BlogsService {
     return this.http.delete<undefined>(`${this.resourceUrl}/${encodeURIComponent(id)}`);
   }
 
+  getCoAuthors(id: number): Observable<string[]> {
+    return this.http.get<string[]>(`${this.resourceUrl}/${encodeURIComponent(id)}/co-authors`);
+  }
+
+  addCoAuthor(id: number, login: string): Observable<undefined> {
+    return this.http.put<undefined>(`${this.resourceUrl}/${encodeURIComponent(id)}/co-authors/${encodeURIComponent(login)}`, null);
+  }
+
+  removeCoAuthor(id: number, login: string): Observable<undefined> {
+    return this.http.delete<undefined>(`${this.resourceUrl}/${encodeURIComponent(id)}/co-authors/${encodeURIComponent(login)}`);
+  }
+
   getBlogIdentifier(blog: Pick<IBlog, 'id'>): number {
     return blog.id;
   }

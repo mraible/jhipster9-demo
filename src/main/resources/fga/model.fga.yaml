@@ -7,6 +7,9 @@ tuples:
   - user: user:user
     relation: owner
     object: blog:2
+  - user: user:jane
+    relation: writer
+    object: blog:2
   - user: blog:1
     relation: parent
     object: post:10
@@ -20,6 +23,7 @@ tests:
         object: blog:1
         assertions:
           viewer: true
+          writer: true
           editor: true
       - user: user:user
         object: post:20
@@ -32,13 +36,37 @@ tests:
         object: blog:1
         assertions:
           viewer: false
+          writer: false
           editor: false
       - user: user:admin
         object: post:20
         assertions:
           viewer: false
           editor: false
+  - name: co-authors can write posts but can't edit or delete the blog
+    check:
+      - user: user:jane
+        object: blog:2
+        assertions:
+          viewer: true
+          writer: true
+          editor: false
+      - user: user:jane
+        object: post:20
+        assertions:
+          viewer: true
+          editor: true
+      - user: user:jane
+        object: post:10
+        assertions:
+          viewer: false
+          editor: false
     list_objects:
+      - user: user:jane
+        type: blog
+        assertions:
+          viewer:
+            - blog:2
       - user: user:user
         type: post
         assertions:

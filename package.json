@@ -113,7 +113,7 @@
     "@eslint/js": "10.0.1",
     "@types/folder-hash": "4.0.4",
     "@types/node": "22.20.2",
-    "@vitest/coverage-v8": "4.1.11",
+    "@vitest/coverage-v8": "5.0.3",
     "angular-eslint": "22.6.0",
     "axios": "1.20.0",
     "concurrently": "10.0.5",

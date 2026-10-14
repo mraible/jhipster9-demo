@@ -8,10 +8,9 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
-import org.jhipster.blog.domain.Blog;
 import org.jhipster.blog.domain.Post;
-import org.jhipster.blog.repository.BlogRepository;
 import org.jhipster.blog.repository.PostRepository;
+import org.jhipster.blog.security.FgaTuples;
 import org.jhipster.blog.security.SecurityUtils;
 import org.jhipster.blog.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
@@ -20,11 +19,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import tech.jhipster.web.util.HeaderUtil;
 import tech.jhipster.web.util.PaginationUtil;
@@ -47,11 +45,11 @@ public class PostResource {
 
     private final PostRepository postRepository;
 
-    private final BlogRepository blogRepository;
+    private final FgaTuples fgaTuples;
 
-    public PostResource(PostRepository postRepository, BlogRepository blogRepository) {
+    public PostResource(PostRepository postRepository, FgaTuples fgaTuples) {
         this.postRepository = postRepository;
-        this.blogRepository = blogRepository;
+        this.fgaTuples = fgaTuples;
     }
 
     /**
@@ -62,6 +60,7 @@ public class PostResource {
      * @throws URISyntaxException if the Location URI syntax is incorrect.
      */
     @PostMapping("")
+    @PreAuthorize("#post.blog?.id == null or @fga.check('blog', #post.blog.id, 'editor', 'user', authentication.name)")
     public ResponseEntity<Post> createPost(@Valid @RequestBody Post post) throws URISyntaxException {
         LOG.debug("REST request to save Post : {}", post);
         if (post.getId() != null) {
@@ -70,10 +69,8 @@ public class PostResource {
         if (post.getBlog() == null || post.getBlog().getId() == null) {
             throw new BadRequestAlertException("A post must belong to a blog", ENTITY_NAME, "blognull");
         }
-        if (!isOwner(blogRepository.findById(post.getBlog().getId()).orElse(null))) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
-        }
         post = postRepository.save(post);
+        fgaTuples.write("blog:" + post.getBlog().getId(), "parent", "post:" + post.getId());
         return ResponseEntity.created(new URI("/api/posts/" + post.getId()))
             .headers(HeaderUtil.createEntityCreationAlert(applicationName, true, ENTITY_NAME, post.getId().toString()))
             .body(post);
@@ -90,6 +87,9 @@ public class PostResource {
      * @throws URISyntaxException if the Location URI syntax is incorrect.
      */
     @PutMapping("/{id}")
+    @PreAuthorize(
+        "@fga.check('post', #id, 'editor', 'user', authentication.name) and (#post.blog?.id == null or @fga.check('blog', #post.blog.id, 'editor', 'user', authentication.name))"
+    )
     public ResponseEntity<Post> updatePost(@PathVariable(value = "id", required = false) final Long id, @Valid @RequestBody Post post)
         throws URISyntaxException {
         LOG.debug("REST request to update Post : {}, {}", id, post);
@@ -99,17 +99,25 @@ public class PostResource {
         if (!Objects.equals(id, post.getId())) {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
-        Post existingPost = postRepository
-            .findById(id)
-            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+        if (!postRepository.existsById(id)) {
+            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
+        }
         if (post.getBlog() == null || post.getBlog().getId() == null) {
             throw new BadRequestAlertException("A post must belong to a blog", ENTITY_NAME, "blognull");
         }
-        if (!isOwner(existingPost.getBlog()) || !isOwner(blogRepository.findById(post.getBlog().getId()).orElse(null))) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
-        }
 
+        Long oldBlogId = postRepository
+            .findById(id)
+            .map(Post::getBlog)
+            .map(b -> b.getId())
+            .orElse(null);
+        Long newBlogId = post.getBlog().getId();
         post = postRepository.save(post);
+        if (oldBlogId == null) {
+            fgaTuples.write("blog:" + newBlogId, "parent", "post:" + id);
+        } else if (!oldBlogId.equals(newBlogId)) {
+            fgaTuples.replace("blog:" + oldBlogId, "blog:" + newBlogId, "parent", "post:" + id);
+        }
         return ResponseEntity.ok()
             .headers(HeaderUtil.createEntityUpdateAlert(applicationName, true, ENTITY_NAME, post.getId().toString()))
             .body(post);
@@ -127,6 +135,7 @@ public class PostResource {
      * @throws URISyntaxException if the Location URI syntax is incorrect.
      */
     @PatchMapping(value = "/{id}", consumes = { "application/json", "application/merge-patch+json" })
+    @PreAuthorize("@fga.check('post', #id, 'editor', 'user', authentication.name)")
     public ResponseEntity<Post> partialUpdatePost(
         @PathVariable(value = "id", required = false) final Long id,
         @NotNull @RequestBody Post post
@@ -141,9 +150,6 @@ public class PostResource {
         Post existingPost = postRepository
             .findById(id)
             .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
-        if (!isOwner(existingPost.getBlog())) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
-        }
 
         updateIfPresent(existingPost::setTitle, post.getTitle());
         updateIfPresent(existingPost::setContent, post.getContent());
@@ -185,12 +191,10 @@ public class PostResource {
      * @return the {@link ResponseEntity} with status {@code 200 (OK)} and with body the post, or with status {@code 404 (Not Found)}.
      */
     @GetMapping("/{id}")
+    @PreAuthorize("@fga.check('post', #id, 'viewer', 'user', authentication.name)")
     public ResponseEntity<Post> getPost(@PathVariable("id") Long id) {
         LOG.debug("REST request to get Post : {}", id);
         Optional<Post> post = postRepository.findOneWithEagerRelationships(id);
-        if (!post.map(p -> isOwner(p.getBlog())).orElse(true)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
-        }
         return ResponseUtil.wrapOrNotFound(post);
     }
 
@@ -201,24 +205,19 @@ public class PostResource {
      * @return the {@link ResponseEntity} with status {@code 204 (NO_CONTENT)}.
      */
     @DeleteMapping("/{id}")
+    @PreAuthorize("@fga.check('post', #id, 'editor', 'user', authentication.name)")
     public ResponseEntity<Void> deletePost(@PathVariable("id") Long id) {
         LOG.debug("REST request to delete Post : {}", id);
-        if (
-            !postRepository
-                .findById(id)
-                .map(p -> isOwner(p.getBlog()))
-                .orElse(false)
-        ) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
-        }
+        Optional<Long> blogId = postRepository
+            .findById(id)
+            .map(Post::getBlog)
+            .map(blog -> blog.getId());
         postRepository.deleteById(id);
+        postRepository.flush();
+        blogId.ifPresent(parent -> fgaTuples.delete("blog:" + parent, "parent", "post:" + id));
         return ResponseEntity.noContent()
             .headers(HeaderUtil.createEntityDeletionAlert(applicationName, true, ENTITY_NAME, id.toString()))
             .build();
-    }
-
-    private boolean isOwner(Blog blog) {
-        return blog != null && blog.getUser() != null && blog.getUser().getLogin().equals(SecurityUtils.getCurrentUserLogin().orElse(""));
     }
 
     private <T> void updateIfPresent(Consumer<T> setter, T value) {

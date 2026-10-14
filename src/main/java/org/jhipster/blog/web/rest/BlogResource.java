@@ -11,16 +11,16 @@ import java.util.function.Consumer;
 import org.jhipster.blog.domain.Blog;
 import org.jhipster.blog.repository.BlogRepository;
 import org.jhipster.blog.repository.UserRepository;
+import org.jhipster.blog.security.FgaTuples;
 import org.jhipster.blog.security.SecurityUtils;
 import org.jhipster.blog.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 import tech.jhipster.web.util.HeaderUtil;
 import tech.jhipster.web.util.ResponseUtil;
 
@@ -43,9 +43,12 @@ public class BlogResource {
 
     private final UserRepository userRepository;
 
-    public BlogResource(BlogRepository blogRepository, UserRepository userRepository) {
+    private final FgaTuples fgaTuples;
+
+    public BlogResource(BlogRepository blogRepository, UserRepository userRepository, FgaTuples fgaTuples) {
         this.blogRepository = blogRepository;
         this.userRepository = userRepository;
+        this.fgaTuples = fgaTuples;
     }
 
     /**
@@ -63,6 +66,7 @@ public class BlogResource {
         }
         blog.setUser(userRepository.findOneByLogin(SecurityUtils.getCurrentUserLogin().orElseThrow()).orElseThrow());
         blog = blogRepository.save(blog);
+        fgaTuples.write("user:" + blog.getUser().getLogin(), "owner", "blog:" + blog.getId());
         return ResponseEntity.created(new URI("/api/blogs/" + blog.getId()))
             .headers(HeaderUtil.createEntityCreationAlert(applicationName, true, ENTITY_NAME, blog.getId().toString()))
             .body(blog);
@@ -79,6 +83,7 @@ public class BlogResource {
      * @throws URISyntaxException if the Location URI syntax is incorrect.
      */
     @PutMapping("/{id}")
+    @PreAuthorize("@fga.check('blog', #id, 'editor', 'user', authentication.name)")
     public ResponseEntity<Blog> updateBlog(@PathVariable(value = "id", required = false) final Long id, @Valid @RequestBody Blog blog)
         throws URISyntaxException {
         LOG.debug("REST request to update Blog : {}, {}", id, blog);
@@ -91,11 +96,8 @@ public class BlogResource {
         Blog existingBlog = blogRepository
             .findById(id)
             .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
-        if (!isOwner(existingBlog)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
-        }
-        blog.setUser(existingBlog.getUser());
 
+        blog.setUser(existingBlog.getUser());
         blog = blogRepository.save(blog);
         return ResponseEntity.ok()
             .headers(HeaderUtil.createEntityUpdateAlert(applicationName, true, ENTITY_NAME, blog.getId().toString()))
@@ -114,6 +116,7 @@ public class BlogResource {
      * @throws URISyntaxException if the Location URI syntax is incorrect.
      */
     @PatchMapping(value = "/{id}", consumes = { "application/json", "application/merge-patch+json" })
+    @PreAuthorize("@fga.check('blog', #id, 'editor', 'user', authentication.name)")
     public ResponseEntity<Blog> partialUpdateBlog(
         @PathVariable(value = "id", required = false) final Long id,
         @NotNull @RequestBody Blog blog
@@ -128,9 +131,6 @@ public class BlogResource {
         Blog existingBlog = blogRepository
             .findById(id)
             .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
-        if (!isOwner(existingBlog)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
-        }
 
         updateIfPresent(existingBlog::setName, blog.getName());
         updateIfPresent(existingBlog::setHandle, blog.getHandle());
@@ -164,12 +164,10 @@ public class BlogResource {
      * @return the {@link ResponseEntity} with status {@code 200 (OK)} and with body the blog, or with status {@code 404 (Not Found)}.
      */
     @GetMapping("/{id}")
+    @PreAuthorize("@fga.check('blog', #id, 'viewer', 'user', authentication.name)")
     public ResponseEntity<Blog> getBlog(@PathVariable("id") Long id) {
         LOG.debug("REST request to get Blog : {}", id);
         Optional<Blog> blog = blogRepository.findOneWithEagerRelationships(id);
-        if (!blog.map(this::isOwner).orElse(true)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
-        }
         return ResponseUtil.wrapOrNotFound(blog);
     }
 
@@ -180,19 +178,16 @@ public class BlogResource {
      * @return the {@link ResponseEntity} with status {@code 204 (NO_CONTENT)}.
      */
     @DeleteMapping("/{id}")
+    @PreAuthorize("@fga.check('blog', #id, 'editor', 'user', authentication.name)")
     public ResponseEntity<Void> deleteBlog(@PathVariable("id") Long id) {
         LOG.debug("REST request to delete Blog : {}", id);
-        if (!blogRepository.findById(id).map(this::isOwner).orElse(false)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
-        }
+        Optional<String> owner = blogRepository.findById(id).map(blog -> blog.getUser().getLogin());
         blogRepository.deleteById(id);
+        blogRepository.flush();
+        owner.ifPresent(login -> fgaTuples.delete("user:" + login, "owner", "blog:" + id));
         return ResponseEntity.noContent()
             .headers(HeaderUtil.createEntityDeletionAlert(applicationName, true, ENTITY_NAME, id.toString()))
             .build();
-    }
-
-    private boolean isOwner(Blog blog) {
-        return blog.getUser() != null && blog.getUser().getLogin().equals(SecurityUtils.getCurrentUserLogin().orElse(""));
     }
 
     private <T> void updateIfPresent(Consumer<T> setter, T value) {

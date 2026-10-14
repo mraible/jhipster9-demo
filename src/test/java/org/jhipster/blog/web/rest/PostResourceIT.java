@@ -19,6 +19,7 @@ import org.jhipster.blog.domain.Post;
 import org.jhipster.blog.repository.BlogRepository;
 import org.jhipster.blog.repository.PostRepository;
 import org.jhipster.blog.repository.UserRepository;
+import org.jhipster.blog.security.FgaTuples;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -58,6 +59,9 @@ class PostResourceIT {
 
     private static final Random random = new Random();
     private static final AtomicLong longCount = new AtomicLong(random.nextInt() + 2L * Integer.MAX_VALUE);
+
+    @Autowired
+    private FgaTuples fgaTuples;
 
     @Autowired
     private ObjectMapper om;
@@ -110,7 +114,15 @@ class PostResourceIT {
         // Posts can only be managed by the owner of their blog, which is "user" for @WithMockUser
         Blog blog = BlogResourceIT.createEntity();
         blog.setUser(userRepository.findOneByLogin("user").orElseThrow());
-        post.setBlog(blogRepository.saveAndFlush(blog));
+        Blog savedBlog = blogRepository.saveAndFlush(blog);
+        fgaTuples.write("user:user", "owner", "blog:" + savedBlog.getId());
+        post.setBlog(savedBlog);
+    }
+
+    private Post savePostWithParent(Post post) {
+        Post saved = postRepository.saveAndFlush(post);
+        fgaTuples.write("blog:" + saved.getBlog().getId(), "parent", "post:" + saved.getId());
+        return saved;
     }
 
     @AfterEach
@@ -196,7 +208,7 @@ class PostResourceIT {
     @Transactional
     void getAllPosts() throws Exception {
         // Initialize the database
-        insertedPost = postRepository.saveAndFlush(post);
+        insertedPost = savePostWithParent(post);
 
         // Get all the postList
         restPostMockMvc
@@ -230,7 +242,7 @@ class PostResourceIT {
     @Transactional
     void getPost() throws Exception {
         // Initialize the database
-        insertedPost = postRepository.saveAndFlush(post);
+        insertedPost = savePostWithParent(post);
 
         // Get the post
         restPostMockMvc
@@ -247,14 +259,14 @@ class PostResourceIT {
     @Transactional
     void getNonExistingPost() throws Exception {
         // Get the post
-        restPostMockMvc.perform(get(ENTITY_API_URL_ID, Long.MAX_VALUE)).andExpect(status().isNotFound());
+        restPostMockMvc.perform(get(ENTITY_API_URL_ID, Long.MAX_VALUE)).andExpect(status().isForbidden());
     }
 
     @Test
     @Transactional
     void putExistingPost() throws Exception {
         // Initialize the database
-        insertedPost = postRepository.saveAndFlush(post);
+        insertedPost = savePostWithParent(post);
 
         long databaseSizeBeforeUpdate = getRepositoryCount();
 
@@ -286,7 +298,7 @@ class PostResourceIT {
         // If the entity doesn't have an ID, it will throw BadRequestAlertException
         restPostMockMvc
             .perform(put(ENTITY_API_URL_ID, post.getId()).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(post)))
-            .andExpect(status().isBadRequest());
+            .andExpect(status().isForbidden());
 
         // Validate the Post in the database
         assertSameRepositoryCount(databaseSizeBeforeUpdate);
@@ -305,7 +317,7 @@ class PostResourceIT {
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(om.writeValueAsBytes(post))
             )
-            .andExpect(status().isBadRequest());
+            .andExpect(status().isForbidden());
 
         // Validate the Post in the database
         assertSameRepositoryCount(databaseSizeBeforeUpdate);
@@ -330,7 +342,7 @@ class PostResourceIT {
     @Transactional
     void partialUpdatePostWithPatch() throws Exception {
         // Initialize the database
-        insertedPost = postRepository.saveAndFlush(post);
+        insertedPost = savePostWithParent(post);
 
         long databaseSizeBeforeUpdate = getRepositoryCount();
 
@@ -358,7 +370,7 @@ class PostResourceIT {
     @Transactional
     void fullUpdatePostWithPatch() throws Exception {
         // Initialize the database
-        insertedPost = postRepository.saveAndFlush(post);
+        insertedPost = savePostWithParent(post);
 
         long databaseSizeBeforeUpdate = getRepositoryCount();
 
@@ -391,7 +403,7 @@ class PostResourceIT {
         // If the entity doesn't have an ID, it will throw BadRequestAlertException
         restPostMockMvc
             .perform(patch(ENTITY_API_URL_ID, post.getId()).contentType("application/merge-patch+json").content(om.writeValueAsBytes(post)))
-            .andExpect(status().isBadRequest());
+            .andExpect(status().isForbidden());
 
         // Validate the Post in the database
         assertSameRepositoryCount(databaseSizeBeforeUpdate);
@@ -410,7 +422,7 @@ class PostResourceIT {
                     .contentType("application/merge-patch+json")
                     .content(om.writeValueAsBytes(post))
             )
-            .andExpect(status().isBadRequest());
+            .andExpect(status().isForbidden());
 
         // Validate the Post in the database
         assertSameRepositoryCount(databaseSizeBeforeUpdate);
@@ -435,7 +447,7 @@ class PostResourceIT {
     @Transactional
     void deletePost() throws Exception {
         // Initialize the database
-        insertedPost = postRepository.saveAndFlush(post);
+        insertedPost = savePostWithParent(post);
 
         long databaseSizeBeforeDelete = getRepositoryCount();
 

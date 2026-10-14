@@ -17,6 +17,19 @@ describe('Post e2e test', () => {
   const postSample = { title: 'ew monthly', content: 'Li4vZmFrZS1kYXRhL2Jsb2IvaGlwc3Rlci50eHQ=', date: '2026-10-13T05:04:31.778Z' };
 
   let post;
+  let blog;
+
+  // Posts can only be viewed and modified by the owner of their blog
+  const createBlog = () =>
+    cy
+      .authenticatedRequest({
+        method: 'POST',
+        url: '/api/blogs',
+        body: { name: 'User blog', handle: username, user: { id: 2, login: username } },
+      })
+      .then(({ body }) => {
+        blog = body;
+      });
 
   before(() => {
     cy.credentials().then(credentials => {
@@ -41,6 +54,14 @@ describe('Post e2e test', () => {
         url: `/api/posts/${post.id}`,
       }).then(() => {
         post = undefined;
+      });
+    }
+    if (blog) {
+      cy.authenticatedRequest({
+        method: 'DELETE',
+        url: `/api/blogs/${blog.id}`,
+      }).then(() => {
+        blog = undefined;
       });
     }
   });
@@ -86,11 +107,14 @@ describe('Post e2e test', () => {
 
     describe('with existing value', () => {
       beforeEach(() => {
-        cy.authenticatedRequest({
-          method: 'POST',
-          url: '/api/posts',
-          body: postSample,
-        }).then(({ body }) => {
+        createBlog();
+        cy.then(() =>
+          cy.authenticatedRequest({
+            method: 'POST',
+            url: '/api/posts',
+            body: { ...postSample, blog },
+          }),
+        ).then(({ body }) => {
           post = body;
 
           cy.intercept(
@@ -164,6 +188,7 @@ describe('Post e2e test', () => {
 
   describe('new Post page', () => {
     beforeEach(() => {
+      createBlog();
       cy.visit(postPageUrl);
       cy.get(entityCreateButtonSelector).click();
       cy.getEntityCreateUpdateHeading('Post');
@@ -179,6 +204,7 @@ describe('Post e2e test', () => {
       cy.get(`[data-cy="date"]`).type('2026-10-13T23:41');
       cy.get(`[data-cy="date"]`).blur();
       cy.get(`[data-cy="date"]`).should('have.value', '2026-10-13T23:41');
+      cy.get(`[data-cy="blog"]`).select('User blog');
 
       cy.get(entityCreateSaveButtonSelector).click();
 

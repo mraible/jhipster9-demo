@@ -130,6 +130,11 @@
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
         <dependency>
+            <groupId>dev.openfga</groupId>
+            <artifactId>openfga-spring-boot-starter</artifactId>
+            <version>0.4.1</version>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security-test</artifactId>
             <scope>test</scope>

@@ -60,7 +60,7 @@ public class PostResource {
      * @throws URISyntaxException if the Location URI syntax is incorrect.
      */
     @PostMapping("")
-    @PreAuthorize("#post.blog?.id == null or @fga.check('blog', #post.blog.id, 'editor', 'user', authentication.name)")
+    @PreAuthorize("#post.blog?.id == null or @fga.check('blog', #post.blog.id, 'writer', 'user', authentication.name)")
     public ResponseEntity<Post> createPost(@Valid @RequestBody Post post) throws URISyntaxException {
         LOG.debug("REST request to save Post : {}", post);
         if (post.getId() != null) {
@@ -88,7 +88,7 @@ public class PostResource {
      */
     @PutMapping("/{id}")
     @PreAuthorize(
-        "@fga.check('post', #id, 'editor', 'user', authentication.name) and (#post.blog?.id == null or @fga.check('blog', #post.blog.id, 'editor', 'user', authentication.name))"
+        "@fga.check('post', #id, 'editor', 'user', authentication.name) and (#post.blog?.id == null or @fga.check('blog', #post.blog.id, 'writer', 'user', authentication.name))"
     )
     public ResponseEntity<Post> updatePost(@PathVariable(value = "id", required = false) final Long id, @Valid @RequestBody Post post)
         throws URISyntaxException {
@@ -175,10 +175,12 @@ public class PostResource {
     ) {
         LOG.debug("REST request to get a page of Posts");
         Page<Post> page;
+        String login = SecurityUtils.getCurrentUserLogin().orElseThrow();
+        List<Long> blogIds = fgaTuples.listObjectIds("user:" + login, "viewer", "blog");
         if (eagerload) {
-            page = postRepository.findAllWithEagerRelationships(pageable);
+            page = postRepository.findAllWithEagerRelationshipsByBlogIdIn(blogIds, pageable);
         } else {
-            page = postRepository.findByBlogUserLoginOrderByDateDesc(SecurityUtils.getCurrentUserLogin().orElse(null), pageable);
+            page = postRepository.findByBlogIdInOrderByDateDesc(blogIds, pageable);
         }
         HttpHeaders headers = PaginationUtil.generatePaginationHttpHeaders(ServletUriComponentsBuilder.fromCurrentRequest(), page);
         return ResponseEntity.ok().headers(headers).body(page.getContent());

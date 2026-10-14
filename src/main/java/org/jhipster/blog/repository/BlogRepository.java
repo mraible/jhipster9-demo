@@ -35,6 +35,9 @@ public interface BlogRepository extends JpaRepository<Blog, Long> {
     @Query("select blog from Blog blog left join fetch blog.user where blog.user.login = ?#{authentication.name}")
     List<Blog> findAllWithToOneRelationships();
 
+    @Query("select blog from Blog blog left join fetch blog.user where blog.id in :ids")
+    List<Blog> findAllWithUserByIdIn(@Param("ids") List<Long> ids);
+
     @Query("select blog from Blog blog left join fetch blog.user where blog.id =:id")
     Optional<Blog> findOneWithToOneRelationships(@Param("id") Long id);
 }

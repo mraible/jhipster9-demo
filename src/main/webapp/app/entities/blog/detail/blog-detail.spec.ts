@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, withComponentInputBinding } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
@@ -17,6 +19,8 @@ describe('Blog Management Detail Component', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
         provideTranslateService(),
         provideRouter(
           [
@@ -47,6 +51,18 @@ describe('Blog Management Detail Component', () => {
 
       // THEN
       expect(instance.blog()).toEqual(expect.objectContaining({ id: 26836 }));
+    });
+  });
+
+  describe('Co-authors', () => {
+    it('should load co-authors for the blog', async () => {
+      const harness = await RouterTestingHarness.create();
+      const instance = await harness.navigateByUrl('/', BlogDetail);
+      harness.detectChanges();
+
+      TestBed.inject(HttpTestingController).expectOne('api/blogs/26836/co-authors').flush(['jane']);
+
+      expect(instance.coAuthors()).toEqual(['jane']);
     });
   });
 

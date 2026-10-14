@@ -150,11 +150,8 @@ public class BlogResource {
     @GetMapping("")
     public List<Blog> getAllBlogs(@RequestParam(name = "eagerload", required = false, defaultValue = "true") boolean eagerload) {
         LOG.debug("REST request to get all Blogs");
-        if (eagerload) {
-            return blogRepository.findAllWithEagerRelationships();
-        } else {
-            return blogRepository.findByUserIsCurrentUser();
-        }
+        String login = SecurityUtils.getCurrentUserLogin().orElseThrow();
+        return blogRepository.findAllWithUserByIdIn(fgaTuples.listObjectIds("user:" + login, "viewer", "blog"));
     }
 
     /**
@@ -181,13 +178,52 @@ public class BlogResource {
     @PreAuthorize("@fga.check('blog', #id, 'editor', 'user', authentication.name)")
     public ResponseEntity<Void> deleteBlog(@PathVariable("id") Long id) {
         LOG.debug("REST request to delete Blog : {}", id);
-        Optional<String> owner = blogRepository.findById(id).map(blog -> blog.getUser().getLogin());
         blogRepository.deleteById(id);
         blogRepository.flush();
-        owner.ifPresent(login -> fgaTuples.delete("user:" + login, "owner", "blog:" + id));
+        fgaTuples.deleteAll("blog:" + id);
         return ResponseEntity.noContent()
             .headers(HeaderUtil.createEntityDeletionAlert(applicationName, true, ENTITY_NAME, id.toString()))
             .build();
+    }
+
+    /**
+     * {@code GET  /blogs/:id/co-authors} : get the logins of the users who can write posts in the "id" blog.
+     */
+    @GetMapping("/{id}/co-authors")
+    @PreAuthorize("@fga.check('blog', #id, 'viewer', 'user', authentication.name)")
+    public List<String> getCoAuthors(@PathVariable("id") Long id) {
+        return fgaTuples
+            .read("blog:" + id, "writer")
+            .stream()
+            .map(tuple -> tuple.getUser().substring("user:".length()))
+            .toList();
+    }
+
+    /**
+     * {@code PUT  /blogs/:id/co-authors/:login} : let the "login" user write posts in the "id" blog.
+     */
+    @PutMapping("/{id}/co-authors/{login}")
+    @PreAuthorize("@fga.check('blog', #id, 'editor', 'user', authentication.name)")
+    public ResponseEntity<Void> addCoAuthor(@PathVariable("id") Long id, @PathVariable("login") String login) {
+        if (userRepository.findOneByLogin(login).isEmpty()) {
+            throw new BadRequestAlertException("User not found", ENTITY_NAME, "usernotfound");
+        }
+        if (!getCoAuthors(id).contains(login)) {
+            fgaTuples.write("user:" + login, "writer", "blog:" + id);
+        }
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * {@code DELETE  /blogs/:id/co-authors/:login} : stop the "login" user from writing posts in the "id" blog.
+     */
+    @DeleteMapping("/{id}/co-authors/{login}")
+    @PreAuthorize("@fga.check('blog', #id, 'editor', 'user', authentication.name)")
+    public ResponseEntity<Void> removeCoAuthor(@PathVariable("id") Long id, @PathVariable("login") String login) {
+        if (getCoAuthors(id).contains(login)) {
+            fgaTuples.delete("user:" + login, "writer", "blog:" + id);
+        }
+        return ResponseEntity.noContent().build();
     }
 
     private <T> void updateIfPresent(Consumer<T> setter, T value) {

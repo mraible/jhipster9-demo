@@ -6,11 +6,12 @@ type user
 type blog
   relations
     define owner: [user]
-    define viewer: owner
+    define writer: [user] or owner
+    define viewer: writer
     define editor: owner
 
 type post
   relations
     define parent: [blog]
     define viewer: viewer from parent
-    define editor: editor from parent
+    define editor: writer from parent

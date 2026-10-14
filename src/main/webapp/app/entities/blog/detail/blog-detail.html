@@ -27,15 +27,57 @@
           <dd>
             <span>{{ blogRef.user?.login }}</span>
           </dd>
+          <dt><span jhiTranslate="blogApp.blog.coAuthors.title">Co-authors</span></dt>
+          <dd data-cy="coAuthors">
+            @for (login of coAuthors(); track login) {
+              <span class="badge text-bg-secondary me-1">
+                {{ login }}
+                @if (isOwner()) {
+                  <button
+                    type="button"
+                    class="btn-close btn-close-white ms-1"
+                    style="font-size: 0.5rem"
+                    [attr.aria-label]="'blogApp.blog.coAuthors.remove' | translate: { login }"
+                    (click)="removeCoAuthor(blogRef.id, login)"
+                  ></button>
+                }
+              </span>
+            } @empty {
+              <span class="text-body-secondary" jhiTranslate="blogApp.blog.coAuthors.none">None</span>
+            }
+            @if (isOwner()) {
+              <form class="d-flex gap-2 mt-2" (ngSubmit)="addCoAuthor(blogRef.id)">
+                <input
+                  type="text"
+                  class="form-control form-control-sm w-auto"
+                  name="coAuthor"
+                  [placeholder]="'blogApp.blog.coAuthors.login' | translate"
+                  data-cy="coAuthorLogin"
+                  [ngModel]="newCoAuthor()"
+                  (ngModelChange)="newCoAuthor.set($event)"
+                />
+                <button
+                  type="submit"
+                  class="btn btn-sm btn-outline-primary"
+                  data-cy="addCoAuthor"
+                  jhiTranslate="blogApp.blog.coAuthors.add"
+                >
+                  Add co-author
+                </button>
+              </form>
+            }
+          </dd>
         </dl>
 
         <button type="button" (click)="previousState()" class="btn btn-info" data-cy="entityDetailsBackButton">
           <fa-icon icon="arrow-left" />&nbsp;<span jhiTranslate="entity.action.back">Back</span>
         </button>
 
-        <button type="button" [routerLink]="['/blog', blogRef.id, 'edit']" class="btn btn-primary">
-          <fa-icon icon="pencil-alt" />&nbsp;<span jhiTranslate="entity.action.edit">Edit</span>
-        </button>
+        @if (isOwner()) {
+          <button type="button" [routerLink]="['/blog', blogRef.id, 'edit']" class="btn btn-primary">
+            <fa-icon icon="pencil-alt" />&nbsp;<span jhiTranslate="entity.action.edit">Edit</span>
+          </button>
+        }
       </div>
     }
   </div>

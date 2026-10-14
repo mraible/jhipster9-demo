@@ -13,6 +13,7 @@ import org.jhipster.blog.domain.User;
 import org.jhipster.blog.repository.BlogRepository;
 import org.jhipster.blog.repository.PostRepository;
 import org.jhipster.blog.repository.UserRepository;
+import org.jhipster.blog.security.FgaTuples;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,6 +32,9 @@ import tools.jackson.databind.ObjectMapper;
 @WithMockUser("user")
 @Transactional
 class OwnershipIT {
+
+    @Autowired
+    private FgaTuples fgaTuples;
 
     @Autowired
     private ObjectMapper om;
@@ -65,6 +69,8 @@ class OwnershipIT {
         adminPost = postRepository.saveAndFlush(
             new Post().title("Admin post").content("Admin content").date(Instant.now()).blog(adminBlog)
         );
+        fgaTuples.write("user:admin", "owner", "blog:" + adminBlog.getId());
+        fgaTuples.write("blog:" + adminBlog.getId(), "parent", "post:" + adminPost.getId());
     }
 
     @Test
@@ -118,6 +124,8 @@ class OwnershipIT {
         Post userPost = postRepository.saveAndFlush(
             new Post().title("User post").content("User content").date(Instant.now()).blog(userBlog)
         );
+        fgaTuples.write("user:user", "owner", "blog:" + userBlog.getId());
+        fgaTuples.write("blog:" + userBlog.getId(), "parent", "post:" + userPost.getId());
         Post moved = new Post().title("Moved").content("Moved").date(Instant.now()).blog(adminBlog);
         moved.setId(userPost.getId());
 

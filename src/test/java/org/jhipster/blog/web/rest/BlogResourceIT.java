@@ -16,6 +16,7 @@ import org.jhipster.blog.IntegrationTest;
 import org.jhipster.blog.domain.Blog;
 import org.jhipster.blog.repository.BlogRepository;
 import org.jhipster.blog.repository.UserRepository;
+import org.jhipster.blog.security.FgaTuples;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,6 +52,9 @@ class BlogResourceIT {
 
     private static final Random random = new Random();
     private static final AtomicLong longCount = new AtomicLong(random.nextInt() + 2L * Integer.MAX_VALUE);
+
+    @Autowired
+    private FgaTuples fgaTuples;
 
     @Autowired
     private ObjectMapper om;
@@ -99,6 +103,12 @@ class BlogResourceIT {
         blog = createEntity();
         // Blogs can only be managed by their owner, which is "user" for @WithMockUser
         blog.setUser(userRepository.findOneByLogin("user").orElseThrow());
+    }
+
+    private Blog saveBlogWithOwner(Blog blog) {
+        Blog saved = blogRepository.saveAndFlush(blog);
+        fgaTuples.write("user:" + saved.getUser().getLogin(), "owner", "blog:" + saved.getId());
+        return saved;
     }
 
     @AfterEach
@@ -184,7 +194,7 @@ class BlogResourceIT {
     @Transactional
     void getAllBlogs() throws Exception {
         // Initialize the database
-        insertedBlog = blogRepository.saveAndFlush(blog);
+        insertedBlog = saveBlogWithOwner(blog);
 
         // Get all the blogList
         restBlogMockMvc
@@ -217,7 +227,7 @@ class BlogResourceIT {
     @Transactional
     void getBlog() throws Exception {
         // Initialize the database
-        insertedBlog = blogRepository.saveAndFlush(blog);
+        insertedBlog = saveBlogWithOwner(blog);
 
         // Get the blog
         restBlogMockMvc
@@ -233,14 +243,14 @@ class BlogResourceIT {
     @Transactional
     void getNonExistingBlog() throws Exception {
         // Get the blog
-        restBlogMockMvc.perform(get(ENTITY_API_URL_ID, Long.MAX_VALUE)).andExpect(status().isNotFound());
+        restBlogMockMvc.perform(get(ENTITY_API_URL_ID, Long.MAX_VALUE)).andExpect(status().isForbidden());
     }
 
     @Test
     @Transactional
     void putExistingBlog() throws Exception {
         // Initialize the database
-        insertedBlog = blogRepository.saveAndFlush(blog);
+        insertedBlog = saveBlogWithOwner(blog);
 
         long databaseSizeBeforeUpdate = getRepositoryCount();
 
@@ -272,7 +282,7 @@ class BlogResourceIT {
         // If the entity doesn't have an ID, it will throw BadRequestAlertException
         restBlogMockMvc
             .perform(put(ENTITY_API_URL_ID, blog.getId()).contentType(MediaType.APPLICATION_JSON).content(om.writeValueAsBytes(blog)))
-            .andExpect(status().isBadRequest());
+            .andExpect(status().isForbidden());
 
         // Validate the Blog in the database
         assertSameRepositoryCount(databaseSizeBeforeUpdate);
@@ -291,7 +301,7 @@ class BlogResourceIT {
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(om.writeValueAsBytes(blog))
             )
-            .andExpect(status().isBadRequest());
+            .andExpect(status().isForbidden());
 
         // Validate the Blog in the database
         assertSameRepositoryCount(databaseSizeBeforeUpdate);
@@ -316,7 +326,7 @@ class BlogResourceIT {
     @Transactional
     void partialUpdateBlogWithPatch() throws Exception {
         // Initialize the database
-        insertedBlog = blogRepository.saveAndFlush(blog);
+        insertedBlog = saveBlogWithOwner(blog);
 
         long databaseSizeBeforeUpdate = getRepositoryCount();
 
@@ -342,7 +352,7 @@ class BlogResourceIT {
     @Transactional
     void fullUpdateBlogWithPatch() throws Exception {
         // Initialize the database
-        insertedBlog = blogRepository.saveAndFlush(blog);
+        insertedBlog = saveBlogWithOwner(blog);
 
         long databaseSizeBeforeUpdate = getRepositoryCount();
 
@@ -375,7 +385,7 @@ class BlogResourceIT {
         // If the entity doesn't have an ID, it will throw BadRequestAlertException
         restBlogMockMvc
             .perform(patch(ENTITY_API_URL_ID, blog.getId()).contentType("application/merge-patch+json").content(om.writeValueAsBytes(blog)))
-            .andExpect(status().isBadRequest());
+            .andExpect(status().isForbidden());
 
         // Validate the Blog in the database
         assertSameRepositoryCount(databaseSizeBeforeUpdate);
@@ -394,7 +404,7 @@ class BlogResourceIT {
                     .contentType("application/merge-patch+json")
                     .content(om.writeValueAsBytes(blog))
             )
-            .andExpect(status().isBadRequest());
+            .andExpect(status().isForbidden());
 
         // Validate the Blog in the database
         assertSameRepositoryCount(databaseSizeBeforeUpdate);
@@ -419,7 +429,7 @@ class BlogResourceIT {
     @Transactional
     void deleteBlog() throws Exception {
         // Initialize the database
-        insertedBlog = blogRepository.saveAndFlush(blog);
+        insertedBlog = saveBlogWithOwner(blog);
 
         long databaseSizeBeforeDelete = getRepositoryCount();
 

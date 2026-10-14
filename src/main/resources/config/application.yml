@@ -228,3 +228,6 @@ jhipster:
 # ===================================================================
 
 # application:
+
+openfga:
+  api-url: http://localhost:8090

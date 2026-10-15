@@ -1,0 +1,54 @@
+name: Sync openfga branch
+# Rebases the openfga branch (one commit per OPENFGA.adoc step) onto main after every push to main,
+# runs CI on it, and opens an issue if the rebase conflicts or OPENFGA.adoc's code snippets are out of date.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  actions: write
+  contents: write
+  issues: write
+concurrency: sync-openfga
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: openfga
+          fetch-depth: 0
+      - name: Rebase openfga onto main
+        id: rebase
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if git rebase origin/main; then
+            if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/openfga)" ]; then
+              git push --force-with-lease=openfga:origin/openfga origin HEAD:openfga
+              echo "pushed=true" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            git rebase --abort
+            echo "conflict=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Run CI on openfga
+        if: steps.rebase.outputs.pushed == 'true'
+        run: gh workflow run main.yml --ref openfga
+      - name: Check OPENFGA.adoc snippets
+        id: snippets
+        if: steps.rebase.outputs.conflict != 'true'
+        run: |
+          branch=$(git rev-parse HEAD)
+          git checkout -q origin/main
+          python3 .github/openfga-tutorial/generate.py "$branch"
+          if ! git diff --quiet -- OPENFGA.adoc; then echo "stale=true" >> "$GITHUB_OUTPUT"; fi
+      - name: Open an issue
+        if: steps.rebase.outputs.conflict == 'true' || steps.snippets.outputs.stale == 'true'
+        run: |
+          title='The openfga branch needs attention'
+          if [ -z "$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[].number')" ]; then
+            gh issue create --title "$title" --body "After ${GITHUB_SHA::7} was pushed to main, the openfga branch couldn't be rebased onto main (conflict: ${{ steps.rebase.outputs.conflict || 'false' }}) or OPENFGA.adoc's snippets no longer match it (stale: ${{ steps.snippets.outputs.stale || 'false' }}). Rebase openfga onto main and fix any conflicts, then run \`python3 .github/openfga-tutorial/generate.py\` on main and commit OPENFGA.adoc. See ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}."
+          fi

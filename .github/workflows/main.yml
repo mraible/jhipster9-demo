@@ -1,5 +1,5 @@
 name: Application CI
-on: [push, pull_request]
+on: [push, pull_request, workflow_dispatch]
 jobs:
   pipeline:
     name: blog pipeline

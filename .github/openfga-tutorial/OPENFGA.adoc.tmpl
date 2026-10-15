@@ -1,0 +1,341 @@
+= Lock Down JHipster 9 with OpenFGA
+:author: Matt Raible
+:email:  matt@raibledesigns.com
+:revnumber: 1.0
+:revdate: {docdate}
+:subject: JHipster
+:keywords: JHipster, Spring Boot, Angular, OpenFGA, Authorization, Fine-Grained Authorization
+:icons: font
+:lang: en
+:language: javascript
+:sourcedir: .
+ifndef::env-github[]
+:icons: font
+endif::[]
+ifdef::env-github,env-browser[]
+:toc: preamble
+:toclevels: 2
+endif::[]
+ifdef::env-github[]
+:status:
+:outfilesuffix: .adoc
+:!toc-title:
+:caution-caption: :fire:
+:important-caption: :exclamation:
+:note-caption: :paperclip:
+:tip-caption: :bulb:
+:warning-caption: :warning:
+endif::[]
+:toc:
+
+In the link:README.adoc#lock-it-down[Lock It Down!] section of the main tutorial, you added `if` statements to `BlogResource` and `PostResource` so only the owner of a blog can view and change it. That works, but every rule lives in Java code. Who can see what is spread across ten methods, and adding a new rule, like letting a friend write posts in your blog, means touching all of them again.
+
+This tutorial replaces those checks with https://openfga.dev[OpenFGA], an open source, fine-grained authorization system inspired by https://research.google/pubs/zanzibar-googles-consistent-global-authorization-system/[Google's Zanzibar paper]. You describe your rules in an authorization model, store relationships (called _tuples_) like "`user:matt is the owner of blog:1`" in OpenFGA, and ask it questions like "`can user:matt edit post:7?`" Then, you'll add a feature that shows why this is worth it: co-authors who can write posts in a blog they don't own.
+
+.Source Code
+****
+The finished code is in the https://github.com/mraible/jhipster9-demo/tree/openfga[`openfga` branch] of the https://github.com/mraible/jhipster9-demo[jhipster9-demo repository]. Each section below is one commit, and you can see all the changes in the https://github.com/mraible/jhipster9-demo/compare/main...openfga[comparison with `main`].
+****
+
+== Prerequisites
+
+* The blog app from the link:README.adoc[Get Started with JHipster 9] tutorial, through the link:README.adoc#fix-integration-tests[Fix Integration Tests] section. You can also clone the `main` branch of https://github.com/mraible/jhipster9-demo[jhipster9-demo].
+* https://docs.docker.com/get-docker/[Docker], to run OpenFGA and the integration tests.
+* The https://openfga.dev/docs/getting-started/cli[OpenFGA CLI] (optional). On macOS, you can install it with `brew install openfga/tap/fga`. If you don't want to install it, you can run it with Docker as shown below.
+
+== Run OpenFGA with Docker Compose
+
+Create a Docker Compose file for OpenFGA next to the other files JHipster generated in `src/main/docker`. OpenFGA listens on port 8080 by default, which is the same as your app, so map it to 8090.
+
+[source,yaml]
+.src/main/docker/openfga.yml
+----
+@@show openfga~4 src/main/docker/openfga.yml@@
+----
+
+Then, add it to `src/main/docker/services.yml`, so `npm run services:up` (which the generated CI workflow uses) starts it with PostgreSQL.
+
+[source,yaml]
+.src/main/docker/services.yml
+----
+@@show openfga~4 src/main/docker/services.yml@@
+----
+
+Start it:
+
+----
+docker compose -f src/main/docker/openfga.yml up -d
+----
+
+WARNING: This uses OpenFGA's default in-memory datastore, which is fine for development. All tuples are lost when the container stops. In production, run OpenFGA with its https://openfga.dev/docs/getting-started/setup-openfga/configure-openfga[PostgreSQL or MySQL datastore].
+
+== Define the Authorization Model
+
+An OpenFGA authorization model defines types, the relations they have, and how relations imply each other. Create `src/main/resources/fga/model.fga` with the rules from the main tutorial: a blog has an owner, the owner can view and edit it, and a post inherits its permissions from its parent blog.
+
+[source]
+.src/main/resources/fga/model.fga
+----
+@@show openfga~4 src/main/resources/fga/model.fga@@
+----
+
+The nice thing about a model is you can test it before writing any Java code. Create `src/main/resources/fga/model.fga.yaml` with some tuples and the answers you expect.
+
+[source,yaml]
+.src/main/resources/fga/model.fga.yaml
+----
+@@show openfga~4 src/main/resources/fga/model.fga.yaml@@
+----
+
+Run the tests with the OpenFGA CLI:
+
+----
+fga model test --tests src/main/resources/fga/model.fga.yaml
+----
+
+Or, use Docker:
+
+----
+docker run --rm -v "$PWD":/work -w /work openfga/cli:v0.8.1 \
+  model test --tests src/main/resources/fga/model.fga.yaml
+----
+
+The API expects the model as JSON, so convert it with `fga model transform`:
+
+----
+fga model transform --file src/main/resources/fga/model.fga > src/main/resources/fga/model.json
+----
+
+== Add the OpenFGA Spring Boot Starter
+
+Add the https://github.com/openfga/spring-boot-starter[OpenFGA Spring Boot starter] to your `pom.xml`.
+
+[source,xml]
+.pom.xml
+----
+        <dependency>
+            <groupId>dev.openfga</groupId>
+            <artifactId>openfga-spring-boot-starter</artifactId>
+            <version>0.4.1</version>
+        </dependency>
+----
+
+NOTE: Version 0.4.1 is built for Spring Boot 3 and Jackson 2. It works with Spring Boot 4.1, but it adds Jackson 2 to your classpath next to Spring Boot's Jackson 3. A Spring Boot 4 version is in progress in https://github.com/openfga/spring-boot-starter/pull/201[openfga/spring-boot-starter#201].
+
+Then, tell it where OpenFGA is in `src/main/resources/config/application.yml`.
+
+[source,yaml]
+----
+openfga:
+  api-url: http://localhost:8090
+----
+
+The starter creates an `OpenFgaClient` bean and an `fga` bean you can use in Spring Security expressions. However, it needs a store and an authorization model to exist first. The starter can write a model on startup, but only into a store that already exists, and an in-memory OpenFGA starts with no stores. Add a configuration class that finds or creates a `blog` store and writes the model when the app starts.
+
+[source,java]
+.src/main/java/org/jhipster/blog/config/OpenFgaConfiguration.java
+----
+@@show openfga~3 src/main/java/org/jhipster/blog/config/OpenFgaConfiguration.java@@
+----
+
+TIP: In production, you'd create the store and model ahead of time (for example, with `fga store create --model model.fga` in your deployment pipeline) and set `openfga.store-id` and `openfga.authorization-model-id` instead.
+
+You'll also need to write and delete tuples when blogs and posts change. Create a small `FgaTuples` class for that.
+
+[source,java]
+.src/main/java/org/jhipster/blog/security/FgaTuples.java
+----
+@@show openfga~3 src/main/java/org/jhipster/blog/security/FgaTuples.java@@
+----
+
+== Replace the Ownership Checks
+
+Now for the fun part. JHipster already enables method security (`@EnableMethodSecurity` in `SecurityConfiguration`), so you can replace each hand-written check with a `@PreAuthorize` annotation that calls `@fga.check(objectType, objectId, relation, userType, userId)`. When a blog is created, write a tuple that makes the current user its owner. When it's deleted, remove the tuple.
+
+[source,diff]
+----
+@@diff openfga~3 openfga~2 src/main/java/org/jhipster/blog/web/rest/BlogResource.java@@
+----
+
+Creating a blog is the one place OpenFGA can't help, because there's no blog to ask about yet. A simple SpEL check makes sure you can only create blogs for yourself.
+
+`PostResource` gets the same treatment, with a `parent` tuple linking each post to its blog. Creating a post requires `editor` on the blog, and moving a post to another blog replaces its `parent` tuple.
+
+[source,java]
+.src/main/java/org/jhipster/blog/web/rest/PostResource.java
+----
+@@lines openfga~2 src/main/java/org/jhipster/blog/web/rest/PostResource.java :: ^\s+@PutMapping :: ^ {12}\}\n {8}\}$@@
+----
+
+See https://github.com/mraible/jhipster9-demo/blob/openfga/src/main/java/org/jhipster/blog/web/rest/PostResource.java[`PostResource.java`] for all the changes. The list endpoints still use the repository queries from the link:README.adoc#add-business-logic[Add Business Logic] section, so `GET /api/blogs` and `GET /api/posts` only return your own data.
+
+Restart your app, and everything should work as before. Use `admin` to create a blog, then log in as `user` and try to open it. You'll get a 403 from OpenFGA instead of from your code.
+
+== Run Integration Tests against OpenFGA
+
+The integration tests need an OpenFGA server too. Add the Testcontainers module for OpenFGA to your `pom.xml`. Its version comes from Spring Boot's dependency management.
+
+[source,xml]
+.pom.xml
+----
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-openfga</artifactId>
+            <scope>test</scope>
+        </dependency>
+----
+
+Create a test configuration that starts the container and points the starter at it.
+
+[source,java]
+.src/test/java/org/jhipster/blog/config/OpenFgaTestContainer.java
+----
+@@show openfga~1 src/test/java/org/jhipster/blog/config/OpenFgaTestContainer.java@@
+----
+
+Add it to the classes in `src/test/java/org/jhipster/blog/IntegrationTest.java`, so every integration test uses it.
+
+[source,java]
+----
+@@lines openfga~1 src/test/java/org/jhipster/blog/IntegrationTest.java :: ^@SpringBootTest :: ^\)$@@
+----
+
+The starter only creates its beans when `openfga.api-url` is set, and the tests have their own `application.yml`. Add a placeholder to `src/test/resources/config/application.yml`. `OpenFgaTestContainer` replaces it with the container's URL.
+
+[source,yaml]
+----
+# Overridden with the Testcontainers URL by OpenFgaTestContainer
+openfga:
+  api-url: http://localhost:8090
+----
+
+The generated tests save entities with repositories, so they don't create any tuples. Add a helper to `BlogResourceIT` that saves a blog and makes `user` its owner, and use it in place of `blogRepository.saveAndFlush(blog)`.
+
+[source,java]
+.src/test/java/org/jhipster/blog/web/rest/BlogResourceIT.java
+----
+@@lines openfga~1 src/test/java/org/jhipster/blog/web/rest/BlogResourceIT.java :: ^\s+private Blog saveBlogWithOwner :: ^ {4}\}$@@
+----
+
+Do the same in `PostResourceIT`, with a `savePostWithParent()` method that writes the `parent` tuple, and an `owner` tuple for the blog in `initTest()`.
+
+Finally, `@PreAuthorize` runs before the method body, so requesting a blog or post that doesn't exist returns 403 instead of 404, and updating one returns 403 instead of 400. That's arguably better, because it doesn't reveal which IDs exist. Update `getNonExisting*`, `putNonExisting*`, `putWithIdMismatch*`, `patchNonExisting*`, and `patchWithIdMismatch*` in both tests to expect `status().isForbidden()`.
+
+Run `./mvnw verify` to make sure everything passes.
+
+== Add Co-Authors
+
+So far, OpenFGA does the same thing as the `if` statements, with more moving parts. Here's where it pays off. Say you want to let other people write posts in your blog, without letting them rename or delete it.
+
+With the hand-written approach, you'd need a new table, a migration, and changes to every check in both resources. With OpenFGA, you add a `writer` relation to the model:
+
+[source,diff]
+----
+@@diff openfga~1 openfga src/main/resources/fga/model.fga@@
+----
+
+Owners are writers too, writers can view the blog, and only the owner is an editor. Posts can now be edited by anyone who's a writer of the parent blog. Add a test for co-authors to `model.fga.yaml`, run `fga model test` again, and regenerate `model.json`.
+
+.Testing the authorization model with the OpenFGA CLI
+image::static/openfga-model-test.png[Testing the authorization model with the OpenFGA CLI, 800, scaledwidth=100%]
+
+Creating a post now requires `writer` on its blog instead of `editor`. That's the only change needed in `PostResource`'s checks.
+
+[source,java]
+----
+@@lines openfga src/main/java/org/jhipster/blog/web/rest/PostResource.java :: ^\s+@PostMapping :: ^\s+@PreAuthorize.*$@@
+----
+
+Adding a co-author is one tuple. Add endpoints to `BlogResource` to list, add, and remove them. Only the blog's owner (its `editor`) can change them.
+
+[source,java]
+.src/main/java/org/jhipster/blog/web/rest/BlogResource.java
+----
+@@lines openfga src/main/java/org/jhipster/blog/web/rest/BlogResource.java :: ^ {4}/\*\*\n {5}\* \{@code GET  /blogs/:id/co-authors\} :: ^ {4}\}\n(?=\n {4}private <T>)@@
+----
+
+When a blog is deleted, delete all its tuples, including co-authors.
+
+[source,java]
+----
+@@lines openfga src/main/java/org/jhipster/blog/web/rest/BlogResource.java :: ^\s+blogRepository.deleteById\(id\); :: ^\s+fgaTuples.read\(.*$@@
+----
+
+=== Show Shared Blogs and Posts
+
+Co-authors also need to see shared blogs and posts in their lists. The repository queries from the main tutorial filter by the owner's login, so they won't. Instead, ask OpenFGA which blogs the current user can view with `listObjects`, and query by those IDs. Add these methods to `FgaTuples`:
+
+[source,java]
+.src/main/java/org/jhipster/blog/security/FgaTuples.java
+----
+@@lines openfga src/main/java/org/jhipster/blog/security/FgaTuples.java :: ^ {4}/\*\*\n {5}\* Returns the ids :: ^ {4}\}\n(?=\}\s*\Z)@@
+----
+
+Add a query to `BlogRepository`:
+
+[source,java]
+----
+@@lines openfga src/main/java/org/jhipster/blog/repository/BlogRepository.java :: ^.*blog.id in :ids.*$ :: ^.*findAllWithUserByIdIn.*$@@
+----
+
+And use it in `getAllBlogs()`:
+
+[source,java]
+----
+@@lines openfga src/main/java/org/jhipster/blog/web/rest/BlogResource.java :: ^ {4}@GetMapping\(\"\"\)\n {4}public List<Blog> getAllBlogs :: ^ {4}\}$@@
+----
+
+`PostResource.getAllPosts()` does the same with new `PostRepository` queries that filter by blog ID. This way, the database still does the paging and sorting.
+
+[source,java]
+----
+@@lines openfga src/main/java/org/jhipster/blog/web/rest/PostResource.java :: ^\s+String login = SecurityUtils :: ^ {8}\}$@@
+----
+
+=== Manage Co-Authors in the UI
+
+Add methods for the new endpoints to `src/main/webapp/app/entities/blog/service/blog.service.ts`:
+
+[source,typescript]
+----
+@@lines openfga src/main/webapp/app/entities/blog/service/blog.service.ts :: ^\s+getCoAuthors :: ^\s+removeCoAuthor.*\n.*\n {2}\}$@@
+----
+
+Then, show the co-authors on the blog's detail page, and let the owner add and remove them. See https://github.com/mraible/jhipster9-demo/blob/openfga/src/main/webapp/app/entities/blog/detail/blog-detail.ts[`blog-detail.ts`] and https://github.com/mraible/jhipster9-demo/blob/openfga/src/main/webapp/app/entities/blog/detail/blog-detail.html[`blog-detail.html`] for the changes. The component compares the blog's user to the current account to decide whether to show the form and the Edit button. That's only for display; the API enforces the rules.
+
+Log in as `user`, open your blog, and add `admin` as a co-author.
+
+.Adding a co-author
+image::static/openfga-co-authors-owner.png[Adding a co-author, 800, scaledwidth=100%]
+
+Log out, and log in as `admin`. You can now see `user`'s blog, but you can't edit it or manage its co-authors.
+
+.Viewing a shared blog as a co-author
+image::static/openfga-co-author-view.png[Viewing a shared blog as a co-author, 800, scaledwidth=100%]
+
+You can write posts in it, and they show up in the post list with your own.
+
+.Posts in your blog and a shared blog
+image::static/openfga-co-author-posts.png[Posts in your blog and a shared blog, 800, scaledwidth=100%]
+
+Notice what you didn't have to change: none of the `@PreAuthorize` checks for viewing, editing, or deleting posts. The rule "`writers of a blog can edit its posts`" lives in one place, the model.
+
+https://github.com/mraible/jhipster9-demo/blob/openfga/src/test/java/org/jhipster/blog/web/rest/BlogCoAuthorIT.java[`BlogCoAuthorIT.java`] tests the whole flow: sharing a blog, writing and editing posts as a co-author, being denied when changing the blog, and losing access when removed.
+
+== Things to Know Before You Ship
+
+OpenFGA moves authorization out of your code, but it also adds a service and a second source of truth. Here's what I ran into while building this.
+
+* *Existing data has no tuples.* If you add OpenFGA to an app with data, owners can't see their own blogs until you backfill tuples (for example, with a one-time job that writes an `owner` tuple for every blog).
+* *Two writes, one transaction.* The resources save to the database, then write to OpenFGA. If the OpenFGA write fails, the exception rolls back the database transaction. If the database commit fails after the tuple is written, you're left with a stray tuple. That's harmless here, because IDs aren't reused, but keep it in mind.
+* *It fails closed.* If OpenFGA is down, every check throws an exception and the API returns 500. That's safer than allowing access, but OpenFGA is now as critical as your database. If the in-memory OpenFGA restarts, its store disappears, and the app returns 500 until it restarts too.
+* *403 instead of 404.* Checks run before the method, so missing IDs return 403.
+* *Lists need `listObjects`.* `check` answers one question about one object. For lists, use `listObjects` to get IDs and let the database page through them, like `getAllPosts()` does. That works well for "`blogs I can see`", but doesn't scale to millions of objects per user. See https://openfga.dev/docs/interacting/search-with-permissions[Search with Permissions] for other options.
+
+== Learn More about OpenFGA
+
+* https://openfga.dev/docs[OpenFGA documentation]
+* https://openfga.dev/docs/modeling/getting-started[Modeling guide]
+* https://play.fga.dev[OpenFGA Playground], to try models in your browser
+* https://github.com/openfga/spring-boot-starter[OpenFGA Spring Boot starter]
+* https://github.com/openfga/java-sdk[OpenFGA Java SDK]

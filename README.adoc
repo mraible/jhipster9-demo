@@ -503,6 +503,8 @@ diff --git a/src/main/java/org/jhipster/blog/web/rest/BlogResource.java b/src/ma
 
 You'll need to make similar changes in `PostResource.java`. See https://github.com/mraible/jhipster9-demo/blob/main/src/main/java/org/jhipster/blog/web/rest/PostResource.java[`PostResource.java` in this example's code] for all the changes you'll need.
 
+TIP: These checks are simple, but every rule lives in your Java code. To see how to move them into https://openfga.dev[OpenFGA] and let co-authors write posts in blogs they don't own, see link:OPENFGA.adoc[Lock Down JHipster 9 with OpenFGA].
+
 === Fix Integration Tests
 
 These changes will cause some of the generated integration tests to fail because the test entities don't belong to anyone. The tests run with `@WithMockUser`, which authenticates as `user`, so assign the `user` user to each test entity. Open `BlogResourceIT.java` and update the `initTest()` method.

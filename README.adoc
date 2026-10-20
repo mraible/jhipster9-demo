@@ -295,14 +295,14 @@ Using your IDE, create this method in the `PostRepository` class. It should look
 Page<Post> findByBlogUserLoginOrderByDateDesc(String username, Pageable pageable);
 ----
 
-While you're in there, add a where clause to the `findAllWithToOneRelationships(Pageable)` method to limit results by the current user.
+While you're in there, add a where clause to the `findAllWithToOneRelationships(Pageable)` method (and its `countQuery`, so pagination stays correct) to limit results by the current user.
 
 [source,java]
 .src/main/java/org/jhipster/blog/repository/PostRepository.java
 ----
 @Query(
     value = "select post from Post post left join fetch post.blog where post.blog.user.login = ?#{authentication.name}",
-    countQuery = "select count(post) from Post post"
+    countQuery = "select count(post) from Post post where post.blog.user.login = ?#{authentication.name}"
 )
 Page<Post> findAllWithToOneRelationships(Pageable pageable);
 ----
@@ -414,6 +414,8 @@ if (<blog.user does not match current user>) {
 return ResponseUtil.wrapOrNotFound(blog);
 ----
 
+Always check the blog that's stored in the database, not the one in the request body. Otherwise, a user could send someone else's blog ID with their own login and take it over. For the same reason, set the owner of a new blog to the current user on the server instead of trusting the client.
+
 Below is the patched `BlogResource.java` with additional logic in each method to prevent data tampering.
 
 [source,diff]
@@ -421,10 +423,11 @@ Below is the patched `BlogResource.java` with additional logic in each method to
 diff --git a/src/main/java/org/jhipster/blog/web/rest/BlogResource.java b/src/main/java/org/jhipster/blog/web/rest/BlogResource.java
 --- a/src/main/java/org/jhipster/blog/web/rest/BlogResource.java
 +++ b/src/main/java/org/jhipster/blog/web/rest/BlogResource.java
-@@ -10,13 +10,16 @@ import java.util.Optional;
+@@ -10,13 +10,17 @@ import java.util.Optional;
  import java.util.function.Consumer;
  import org.jhipster.blog.domain.Blog;
  import org.jhipster.blog.repository.BlogRepository;
++import org.jhipster.blog.repository.UserRepository;
 +import org.jhipster.blog.security.SecurityUtils;
  import org.jhipster.blog.web.rest.errors.BadRequestAlertException;
  import org.slf4j.Logger;
@@ -437,71 +440,115 @@ diff --git a/src/main/java/org/jhipster/blog/web/rest/BlogResource.java b/src/ma
 +import org.springframework.web.server.ResponseStatusException;
  import tech.jhipster.web.util.HeaderUtil;
  import tech.jhipster.web.util.ResponseUtil;
-
-@@ -54,6 +57,9 @@ public class BlogResource {
+ 
+@@ -37,8 +41,11 @@ public class BlogResource {
+ 
+     private final BlogRepository blogRepository;
+ 
+-    public BlogResource(BlogRepository blogRepository) {
++    private final UserRepository userRepository;
++
++    public BlogResource(BlogRepository blogRepository, UserRepository userRepository) {
+         this.blogRepository = blogRepository;
++        this.userRepository = userRepository;
+     }
+ 
+     /**
+@@ -54,6 +61,7 @@ public class BlogResource {
          if (blog.getId() != null) {
              throw new BadRequestAlertException("A new blog cannot already have an ID", ENTITY_NAME, "idexists");
          }
-+        if (!blog.getUser().getLogin().equals(SecurityUtils.getCurrentUserLogin().orElse(""))) {
-+            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
-+        }
++        blog.setUser(userRepository.findOneByLogin(SecurityUtils.getCurrentUserLogin().orElseThrow()).orElseThrow());
          blog = blogRepository.save(blog);
          return ResponseEntity.created(new URI("/api/blogs/" + blog.getId()))
              .headers(HeaderUtil.createEntityCreationAlert(applicationName, true, ENTITY_NAME, blog.getId().toString()))
-@@ -80,10 +86,12 @@ public class BlogResource {
+@@ -80,10 +88,13 @@ public class BlogResource {
          if (!Objects.equals(id, blog.getId())) {
              throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
          }
 -
-         if (!blogRepository.existsById(id)) {
-             throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-         }
-+        if (blog.getUser() != null && !blog.getUser().getLogin().equals(SecurityUtils.getCurrentUserLogin().orElse(""))) {
+-        if (!blogRepository.existsById(id)) {
+-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
++        Blog existingBlog = blogRepository
++            .findById(id)
++            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
++        if (!isOwner(existingBlog)) {
 +            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
-+        }
-
+         }
++        blog.setUser(existingBlog.getUser());
+ 
          blog = blogRepository.save(blog);
          return ResponseEntity.ok()
-@@ -114,10 +122,12 @@ public class BlogResource {
+@@ -114,25 +125,20 @@ public class BlogResource {
          if (!Objects.equals(id, blog.getId())) {
              throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
          }
 -
-         if (!blogRepository.existsById(id)) {
-             throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-         }
-+        if (blog.getUser() != null && !blog.getUser().getLogin().equals(SecurityUtils.getCurrentUserLogin().orElse(""))) {
+-        if (!blogRepository.existsById(id)) {
+-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
++        Blog existingBlog = blogRepository
++            .findById(id)
++            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
++        if (!isOwner(existingBlog)) {
 +            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
-+        }
-
-         Optional<Blog> result = blogRepository
-             .findById(blog.getId())
-@@ -161,6 +171,11 @@ public class BlogResource {
+         }
+ 
+-        Optional<Blog> result = blogRepository
+-            .findById(blog.getId())
+-            .map(existingBlog -> {
+-                updateIfPresent(existingBlog::setName, blog.getName());
+-                updateIfPresent(existingBlog::setHandle, blog.getHandle());
++        updateIfPresent(existingBlog::setName, blog.getName());
++        updateIfPresent(existingBlog::setHandle, blog.getHandle());
++        Blog result = blogRepository.save(existingBlog);
+ 
+-                return existingBlog;
+-            })
+-            .map(blogRepository::save);
+-
+-        return ResponseUtil.wrapOrNotFound(
+-            result,
+-            HeaderUtil.createEntityUpdateAlert(applicationName, true, ENTITY_NAME, blog.getId().toString())
+-        );
++        return ResponseEntity.ok()
++            .headers(HeaderUtil.createEntityUpdateAlert(applicationName, true, ENTITY_NAME, result.getId().toString()))
++            .body(result);
+     }
+ 
+     /**
+@@ -161,6 +167,9 @@ public class BlogResource {
      public ResponseEntity<Blog> getBlog(@PathVariable("id") Long id) {
          LOG.debug("REST request to get Blog : {}", id);
          Optional<Blog> blog = blogRepository.findOneWithEagerRelationships(id);
-+        if (blog.isPresent()) {
-+            blog
-+                .filter(b -> b.getUser() != null && b.getUser().getLogin().equals(SecurityUtils.getCurrentUserLogin().orElse("")))
-+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN));
++        if (!blog.map(this::isOwner).orElse(true)) {
++            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
 +        }
          return ResponseUtil.wrapOrNotFound(blog);
      }
-
-@@ -173,6 +188,10 @@ public class BlogResource {
+ 
+@@ -173,12 +182,19 @@ public class BlogResource {
      @DeleteMapping("/{id}")
      public ResponseEntity<Void> deleteBlog(@PathVariable("id") Long id) {
          LOG.debug("REST request to delete Blog : {}", id);
-+        Optional<Blog> blog = blogRepository.findById(id);
-+        blog
-+            .filter(b -> b.getUser() != null && b.getUser().getLogin().equals(SecurityUtils.getCurrentUserLogin().orElse("")))
-+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN));
++        if (!blogRepository.findById(id).map(this::isOwner).orElse(false)) {
++            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
++        }
          blogRepository.deleteById(id);
          return ResponseEntity.noContent()
              .headers(HeaderUtil.createEntityDeletionAlert(applicationName, true, ENTITY_NAME, id.toString()))
+             .build();
+     }
+ 
++    private boolean isOwner(Blog blog) {
++        return blog.getUser() != null && blog.getUser().getLogin().equals(SecurityUtils.getCurrentUserLogin().orElse(""));
++    }
++
+     private <T> void updateIfPresent(Consumer<T> setter, T value) {
+         if (value != null) {
+             setter.accept(value);
 ----
 
-You'll need to make similar changes in `PostResource.java`. See https://github.com/mraible/jhipster9-demo/blob/main/src/main/java/org/jhipster/blog/web/rest/PostResource.java[`PostResource.java` in this example's code] for all the changes you'll need.
+You'll need to make similar changes in `PostResource.java`: load the post's blog from the database before checking its owner, and return a `400 Bad Request` if a post doesn't have a blog. See https://github.com/mraible/jhipster9-demo/blob/main/src/main/java/org/jhipster/blog/web/rest/PostResource.java[`PostResource.java` in this example's code] for all the changes you'll need.
 
 TIP: These checks are simple, but every rule lives in your Java code. To see how to move them into https://openfga.dev[OpenFGA] and let co-authors write posts in blogs they don't own, see link:OPENFGA.adoc[Lock Down JHipster 9 with OpenFGA].
 
@@ -653,7 +700,7 @@ Run `npm run e2e` to confirm everything works as expected.
 
 A JHipster application can be deployed anywhere a Spring Boot application can be deployed.
 
-JHipster ships with support for deploying to https://www.jhipster.tech/heroku/[Heroku], https://www.jhipster.tech/kubernetes/[Kubernetes], https://www.jhipster.tech/aws/[AWS], and https://www.jhipster.tech/azure/[Azure].
+JHipster ships with support for deploying to https://www.jhipster.tech/heroku/[Heroku], https://www.jhipster.tech/kubernetes/[Kubernetes], https://www.jhipster.tech/gcp/[Google Cloud], and https://www.jhipster.tech/azure/[Azure].
 
 When you prepare a JHipster application for production, it's recommended to use the pre-configured "`production`" profile. With Maven, you can package your application by specifying the `prod` profile when building.
 

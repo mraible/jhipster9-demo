@@ -10,6 +10,7 @@ import java.util.Optional;
 import java.util.function.Consumer;
 import org.jhipster.blog.domain.Blog;
 import org.jhipster.blog.repository.BlogRepository;
+import org.jhipster.blog.repository.UserRepository;
 import org.jhipster.blog.security.SecurityUtils;
 import org.jhipster.blog.web.rest.errors.BadRequestAlertException;
 import org.slf4j.Logger;
@@ -40,8 +41,11 @@ public class BlogResource {
 
     private final BlogRepository blogRepository;
 
-    public BlogResource(BlogRepository blogRepository) {
+    private final UserRepository userRepository;
+
+    public BlogResource(BlogRepository blogRepository, UserRepository userRepository) {
         this.blogRepository = blogRepository;
+        this.userRepository = userRepository;
     }
 
     /**
@@ -57,9 +61,7 @@ public class BlogResource {
         if (blog.getId() != null) {
             throw new BadRequestAlertException("A new blog cannot already have an ID", ENTITY_NAME, "idexists");
         }
-        if (!blog.getUser().getLogin().equals(SecurityUtils.getCurrentUserLogin().orElse(""))) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
-        }
+        blog.setUser(userRepository.findOneByLogin(SecurityUtils.getCurrentUserLogin().orElseThrow()).orElseThrow());
         blog = blogRepository.save(blog);
         return ResponseEntity.created(new URI("/api/blogs/" + blog.getId()))
             .headers(HeaderUtil.createEntityCreationAlert(applicationName, true, ENTITY_NAME, blog.getId().toString()))
@@ -86,12 +88,13 @@ public class BlogResource {
         if (!Objects.equals(id, blog.getId())) {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
-        if (!blogRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
-        if (blog.getUser() != null && !blog.getUser().getLogin().equals(SecurityUtils.getCurrentUserLogin().orElse(""))) {
+        Blog existingBlog = blogRepository
+            .findById(id)
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+        if (!isOwner(existingBlog)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN);
         }
+        blog.setUser(existingBlog.getUser());
 
         blog = blogRepository.save(blog);
         return ResponseEntity.ok()
@@ -122,27 +125,20 @@ public class BlogResource {
         if (!Objects.equals(id, blog.getId())) {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
-        if (!blogRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
-        if (blog.getUser() != null && !blog.getUser().getLogin().equals(SecurityUtils.getCurrentUserLogin().orElse(""))) {
+        Blog existingBlog = blogRepository
+            .findById(id)
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+        if (!isOwner(existingBlog)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN);
         }
 
-        Optional<Blog> result = blogRepository
-            .findById(blog.getId())
-            .map(existingBlog -> {
-                updateIfPresent(existingBlog::setName, blog.getName());
-                updateIfPresent(existingBlog::setHandle, blog.getHandle());
+        updateIfPresent(existingBlog::setName, blog.getName());
+        updateIfPresent(existingBlog::setHandle, blog.getHandle());
+        Blog result = blogRepository.save(existingBlog);
 
-                return existingBlog;
-            })
-            .map(blogRepository::save);
-
-        return ResponseUtil.wrapOrNotFound(
-            result,
-            HeaderUtil.createEntityUpdateAlert(applicationName, true, ENTITY_NAME, blog.getId().toString())
-        );
+        return ResponseEntity.ok()
+            .headers(HeaderUtil.createEntityUpdateAlert(applicationName, true, ENTITY_NAME, result.getId().toString()))
+            .body(result);
     }
 
     /**
@@ -171,10 +167,8 @@ public class BlogResource {
     public ResponseEntity<Blog> getBlog(@PathVariable("id") Long id) {
         LOG.debug("REST request to get Blog : {}", id);
         Optional<Blog> blog = blogRepository.findOneWithEagerRelationships(id);
-        if (blog.isPresent()) {
-            blog.filter(
-                b -> b.getUser() != null && b.getUser().getLogin().equals(SecurityUtils.getCurrentUserLogin().orElse(""))
-            ).orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN));
+        if (!blog.map(this::isOwner).orElse(true)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
         }
         return ResponseUtil.wrapOrNotFound(blog);
     }
@@ -188,14 +182,17 @@ public class BlogResource {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteBlog(@PathVariable("id") Long id) {
         LOG.debug("REST request to delete Blog : {}", id);
-        Optional<Blog> blog = blogRepository.findById(id);
-        blog.filter(b -> b.getUser() != null && b.getUser().getLogin().equals(SecurityUtils.getCurrentUserLogin().orElse(""))).orElseThrow(
-            () -> new ResponseStatusException(HttpStatus.FORBIDDEN)
-        );
+        if (!blogRepository.findById(id).map(this::isOwner).orElse(false)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+        }
         blogRepository.deleteById(id);
         return ResponseEntity.noContent()
             .headers(HeaderUtil.createEntityDeletionAlert(applicationName, true, ENTITY_NAME, id.toString()))
             .build();
+    }
+
+    private boolean isOwner(Blog blog) {
+        return blog.getUser() != null && blog.getUser().getLogin().equals(SecurityUtils.getCurrentUserLogin().orElse(""));
     }
 
     private <T> void updateIfPresent(Consumer<T> setter, T value) {

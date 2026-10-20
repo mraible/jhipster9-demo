@@ -8,7 +8,9 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
+import org.jhipster.blog.domain.Blog;
 import org.jhipster.blog.domain.Post;
+import org.jhipster.blog.repository.BlogRepository;
 import org.jhipster.blog.repository.PostRepository;
 import org.jhipster.blog.security.SecurityUtils;
 import org.jhipster.blog.web.rest.errors.BadRequestAlertException;
@@ -45,8 +47,11 @@ public class PostResource {
 
     private final PostRepository postRepository;
 
-    public PostResource(PostRepository postRepository) {
+    private final BlogRepository blogRepository;
+
+    public PostResource(PostRepository postRepository, BlogRepository blogRepository) {
         this.postRepository = postRepository;
+        this.blogRepository = blogRepository;
     }
 
     /**
@@ -62,11 +67,10 @@ public class PostResource {
         if (post.getId() != null) {
             throw new BadRequestAlertException("A new post cannot already have an ID", ENTITY_NAME, "idexists");
         }
-        if (
-            post.getBlog() != null &&
-            post.getBlog().getUser() != null &&
-            !post.getBlog().getUser().getLogin().equals(SecurityUtils.getCurrentUserLogin().orElse(""))
-        ) {
+        if (post.getBlog() == null || post.getBlog().getId() == null) {
+            throw new BadRequestAlertException("A post must belong to a blog", ENTITY_NAME, "blognull");
+        }
+        if (!isOwner(blogRepository.findById(post.getBlog().getId()).orElse(null))) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN);
         }
         post = postRepository.save(post);
@@ -95,14 +99,13 @@ public class PostResource {
         if (!Objects.equals(id, post.getId())) {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
-        if (!postRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
+        Post existingPost = postRepository
+            .findById(id)
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+        if (post.getBlog() == null || post.getBlog().getId() == null) {
+            throw new BadRequestAlertException("A post must belong to a blog", ENTITY_NAME, "blognull");
         }
-        if (
-            post.getBlog() != null &&
-            post.getBlog().getUser() != null &&
-            !post.getBlog().getUser().getLogin().equals(SecurityUtils.getCurrentUserLogin().orElse(""))
-        ) {
+        if (!isOwner(existingPost.getBlog()) || !isOwner(blogRepository.findById(post.getBlog().getId()).orElse(null))) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN);
         }
 
@@ -135,32 +138,21 @@ public class PostResource {
         if (!Objects.equals(id, post.getId())) {
             throw new BadRequestAlertException("Invalid ID", ENTITY_NAME, "idinvalid");
         }
-        if (!postRepository.existsById(id)) {
-            throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-        }
-        if (
-            post.getBlog() != null &&
-            post.getBlog().getUser() != null &&
-            !post.getBlog().getUser().getLogin().equals(SecurityUtils.getCurrentUserLogin().orElse(""))
-        ) {
+        Post existingPost = postRepository
+            .findById(id)
+            .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+        if (!isOwner(existingPost.getBlog())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN);
         }
 
-        Optional<Post> result = postRepository
-            .findById(post.getId())
-            .map(existingPost -> {
-                updateIfPresent(existingPost::setTitle, post.getTitle());
-                updateIfPresent(existingPost::setContent, post.getContent());
-                updateIfPresent(existingPost::setDate, post.getDate());
+        updateIfPresent(existingPost::setTitle, post.getTitle());
+        updateIfPresent(existingPost::setContent, post.getContent());
+        updateIfPresent(existingPost::setDate, post.getDate());
+        Post result = postRepository.save(existingPost);
 
-                return existingPost;
-            })
-            .map(postRepository::save);
-
-        return ResponseUtil.wrapOrNotFound(
-            result,
-            HeaderUtil.createEntityUpdateAlert(applicationName, true, ENTITY_NAME, post.getId().toString())
-        );
+        return ResponseEntity.ok()
+            .headers(HeaderUtil.createEntityUpdateAlert(applicationName, true, ENTITY_NAME, result.getId().toString()))
+            .body(result);
     }
 
     /**
@@ -196,13 +188,8 @@ public class PostResource {
     public ResponseEntity<Post> getPost(@PathVariable("id") Long id) {
         LOG.debug("REST request to get Post : {}", id);
         Optional<Post> post = postRepository.findOneWithEagerRelationships(id);
-        if (post.isPresent()) {
-            post.filter(
-                p ->
-                    p.getBlog() != null &&
-                    p.getBlog().getUser() != null &&
-                    p.getBlog().getUser().getLogin().equals(SecurityUtils.getCurrentUserLogin().orElse(""))
-            ).orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN));
+        if (!post.map(p -> isOwner(p.getBlog())).orElse(true)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
         }
         return ResponseUtil.wrapOrNotFound(post);
     }
@@ -216,17 +203,22 @@ public class PostResource {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deletePost(@PathVariable("id") Long id) {
         LOG.debug("REST request to delete Post : {}", id);
-        Optional<Post> post = postRepository.findById(id);
-        post.filter(
-            p ->
-                p.getBlog() != null &&
-                p.getBlog().getUser() != null &&
-                p.getBlog().getUser().getLogin().equals(SecurityUtils.getCurrentUserLogin().orElse(""))
-        ).orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN));
+        if (
+            !postRepository
+                .findById(id)
+                .map(p -> isOwner(p.getBlog()))
+                .orElse(false)
+        ) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+        }
         postRepository.deleteById(id);
         return ResponseEntity.noContent()
             .headers(HeaderUtil.createEntityDeletionAlert(applicationName, true, ENTITY_NAME, id.toString()))
             .build();
+    }
+
+    private boolean isOwner(Blog blog) {
+        return blog != null && blog.getUser() != null && blog.getUser().getLogin().equals(SecurityUtils.getCurrentUserLogin().orElse(""));
     }
 
     private <T> void updateIfPresent(Consumer<T> setter, T value) {

@@ -31,7 +31,7 @@ public interface PostRepository extends PostRepositoryWithBagRelationships, JpaR
 
     @Query(
         value = "select post from Post post left join fetch post.blog where post.blog.user.login = ?#{authentication.name}",
-        countQuery = "select count(post) from Post post"
+        countQuery = "select count(post) from Post post where post.blog.user.login = ?#{authentication.name}"
     )
     Page<Post> findAllWithToOneRelationships(Pageable pageable);
 

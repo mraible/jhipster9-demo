@@ -25,7 +25,7 @@ describe('Post e2e test', () => {
       .authenticatedRequest({
         method: 'POST',
         url: '/api/blogs',
-        body: { name: 'User blog', handle: username, user: { id: 2, login: username } },
+        body: { name: 'User blog', handle: username },
       })
       .then(({ body }) => {
         blog = body;

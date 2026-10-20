@@ -1,5 +1,7 @@
 name: Application CI
 on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
 jobs:
   pipeline:
     name: blog pipeline
@@ -24,7 +26,7 @@ jobs:
         run: npm install
       - name: Install Snyk CLI
         run: |
-          curl --compressed https://static.snyk.io/cli/latest/snyk-linux -o snyk
+          curl --compressed https://static.snyk.io/cli/v1.1307.4/snyk-linux -o snyk
           chmod +x snyk
       - name: Snyk test
         continue-on-error: true

@@ -89,7 +89,7 @@ describe('Blog e2e test', () => {
         cy.authenticatedRequest({
           method: 'POST',
           url: '/api/blogs',
-          body: { ...blogSample, user: { id: 2, login: username } },
+          body: blogSample,
         }).then(({ body }) => {
           blog = body;
 
@@ -172,7 +172,6 @@ describe('Blog e2e test', () => {
 
       cy.get(`[data-cy="handle"]`).type('gripping fake');
       cy.get(`[data-cy="handle"]`).should('have.value', 'gripping fake');
-      cy.get(`[data-cy="user"]`).select(username);
 
       cy.get(entityCreateSaveButtonSelector).click();
 

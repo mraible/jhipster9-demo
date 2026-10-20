@@ -151,9 +151,9 @@ For each entity you want to create, you will need:
 * an Angular list component, edit component, service; and
 * several HTML pages for each component.
 
-Also, you should have integration tests to verify that everything works and performance tests to confirm that it runs fast. In an ideal world, you'd also have unit tests and integration tests for your Angular code.
+Also, you should have integration tests to verify that everything works. In an ideal world, you'd also have unit tests and integration tests for your Angular code.
 
-The good news is JHipster can generate all of this code for you, including integration tests and performance tests. If you have entities with relationships, it will create the necessary schema to support them (with foreign keys), and the TypeScript and HTML code to manage them. You can also set up validation to require certain fields as well as control their length.
+The good news is JHipster can generate all of this code for you, including integration tests and end-to-end tests. If you have entities with relationships, it will create the necessary schema to support them (with foreign keys), and the TypeScript and HTML code to manage them. You can also set up validation to require certain fields as well as control their length.
 
 JHipster supports several methods of code generation. The first uses its https://www.jhipster.tech/creating-an-entity/[entity sub-generator]. The entity sub-generator is a command-line tool that prompts you with questions that you answer.
 
@@ -231,6 +231,7 @@ image::static/posts.png[Posts, 800, scaledwidth=100%]
 
 From these screenshots, you can see that users can see each other's data and modify it.
 
+[[add-business-logic]]
 == Add Business Logic
 
 TIP: To configure an IDE with your JHipster project, see https://www.jhipster.tech/configuring-ide/[Configuring your IDE]. Instructions exist for Eclipse, IntelliJ IDEA, Visual Studio Code, and NetBeans.
@@ -401,6 +402,7 @@ Now it looks more like a regular blog!
 .Blog entries
 image::static/blog-entries.png[Blog entries, 800, scaledwidth=100%]
 
+[[lock-it-down]]
 === Lock It Down!
 
 You can further enhance the security of your API by only allowing users that own a blog (or post) to edit it. Here's some pseudocode to show the logic:
@@ -550,8 +552,25 @@ diff --git a/src/main/java/org/jhipster/blog/web/rest/BlogResource.java b/src/ma
 
 You'll need to make similar changes in `PostResource.java`: load the post's blog from the database before checking its owner, and return a `400 Bad Request` if a post doesn't have a blog. See https://github.com/mraible/jhipster9-demo/blob/main/src/main/java/org/jhipster/blog/web/rest/PostResource.java[`PostResource.java` in this example's code] for all the changes you'll need.
 
+The `400` error uses a new `blognull` key, so add a translation for it next to `idnotfound` in `src/main/webapp/i18n/en/global.json`:
+
+[source,json]
+.src/main/webapp/i18n/en/global.json
+----
+"blognull": "A post must belong to a blog",
+----
+
+And in `src/main/webapp/i18n/es/global.json`:
+
+[source,json]
+.src/main/webapp/i18n/es/global.json
+----
+"blognull": "Una entrada debe pertenecer a un blog",
+----
+
 TIP: These checks are simple, but every rule lives in your Java code. To see how to move them into https://openfga.dev[OpenFGA] and let co-authors write posts in blogs they don't own, see link:OPENFGA.adoc[Lock Down JHipster 9 with OpenFGA].
 
+[[fix-integration-tests]]
 === Fix Integration Tests
 
 These changes will cause some of the generated integration tests to fail because the test entities don't belong to anyone. The tests run with `@WithMockUser`, which authenticates as `user`, so assign the `user` user to each test entity. Open `BlogResourceIT.java` and update the `initTest()` method.
@@ -594,30 +613,7 @@ Run `./mvnw verify` to confirm all the tests pass.
 
 === Fix Cypress Tests
 
-The changes you just made to limit data visibility will cause Cypress end-to-end tests to fail too. Open `blog.cy.ts` and assign the current user to the blog that's created with the API. You'll also need to select a user in the `should create an instance of Blog` test.
-
-[source,diff]
-.src/test/javascript/cypress/e2e/entity/blog.cy.ts
-----
-@@ -89,7 +89,7 @@ describe('Blog e2e test', () => {
-         cy.authenticatedRequest({
-           method: 'POST',
-           url: '/api/blogs',
--          body: blogSample,
-+          body: { ...blogSample, user: { id: 2, login: username } },
-         }).then(({ body }) => {
-           blog = body;
-
-@@ -172,6 +172,7 @@ describe('Blog e2e test', () => {
-
-       cy.get(`[data-cy="handle"]`).type('gripping fake');
-       cy.get(`[data-cy="handle"]`).should('have.value', 'gripping fake');
-+      cy.get(`[data-cy="user"]`).select(username);
-
-       cy.get(entityCreateSaveButtonSelector).click();
-----
-
-Then, change `post.cy.ts` so each test creates a blog for the current user, assigns it to the post, and deletes it afterward.
+The blog tests still pass, because the server makes the current user the owner of each new blog. The post tests fail, though, because posts need a blog now, and it has to belong to the current user. Change `post.cy.ts` so each test creates a blog, assigns it to the post, and deletes it afterward.
 
 [source,diff]
 .src/test/javascript/cypress/e2e/entity/post.cy.ts
@@ -634,7 +630,7 @@ Then, change `post.cy.ts` so each test creates a blog for the current user, assi
 +      .authenticatedRequest({
 +        method: 'POST',
 +        url: '/api/blogs',
-+        body: { name: 'User blog', handle: username, user: { id: 2, login: username } },
++        body: { name: 'User blog', handle: username },
 +      })
 +      .then(({ body }) => {
 +        blog = body;
@@ -708,7 +704,7 @@ When you prepare a JHipster application for production, it's recommended to use 
 ./mvnw -Pprod verify
 ----
 
-The production profile is used to build an optimized JavaScript client. You can invoke this using the Angular CLI by running `npm run webapp:prod`. The production profile also configures gzip compression, cache headers, and monitoring via https://micrometer.io/[Micrometer]. If you have a https://graphiteapp.org/[Graphite] server configured in your `application-prod.yml` file, your application will automatically send metrics data to it.
+The production profile is used to build an optimized JavaScript client. You can invoke this using the Angular CLI by running `npm run webapp:prod`. The production profile also configures gzip compression, cache headers, and monitoring via https://micrometer.io/[Micrometer]. If you want to scrape metrics with https://prometheus.io/[Prometheus], set `management.prometheus.metrics.export.enabled` to `true` in `application-prod.yml`. It's turned off by default.
 
 Before deploying anywhere, you can try the production build locally. The `prod` profile uses PostgreSQL, so start it with Docker Compose.
 

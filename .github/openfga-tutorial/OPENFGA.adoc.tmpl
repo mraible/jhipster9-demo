@@ -150,16 +150,16 @@ You'll also need to write and delete tuples when blogs and posts change. Create 
 
 == Replace the Ownership Checks
 
-Now for the fun part. JHipster already enables method security (`@EnableMethodSecurity` in `SecurityConfiguration`), so you can replace each hand-written check with a `@PreAuthorize` annotation that calls `@fga.check(objectType, objectId, relation, userType, userId)`. When a blog is created, write a tuple that makes the current user its owner. When it's deleted, remove the tuple.
+Now for the fun part. JHipster already enables method security (`@EnableMethodSecurity` in `SecurityConfiguration`), so you can replace each hand-written check with a `@PreAuthorize` annotation that calls `@fga.check(objectType, objectId, relation, userType, userId)`. When a blog is created, write a tuple that makes the current user its owner. When it's deleted, remove the tuple, but only after the database delete is flushed. If the delete fails (for example, because the blog still has posts), the owner keeps access.
 
 [source,diff]
 ----
 @@diff openfga~3 openfga~2 src/main/java/org/jhipster/blog/web/rest/BlogResource.java@@
 ----
 
-Creating a blog is the one place OpenFGA can't help, because there's no blog to ask about yet. A simple SpEL check makes sure you can only create blogs for yourself.
+Creating a blog is the one place OpenFGA can't help, because there's no blog to ask about yet. Instead, `createBlog()` ignores any user in the request and makes the current user the owner. Updates keep the existing owner, so ownership can't be changed through the API.
 
-`PostResource` gets the same treatment, with a `parent` tuple linking each post to its blog. Creating a post requires `editor` on the blog, and moving a post to another blog replaces its `parent` tuple.
+`PostResource` gets the same treatment, with a `parent` tuple linking each post to its blog. Creating a post requires `editor` on the blog, posts without a blog are rejected with a 400, and moving a post to another blog replaces its `parent` tuple.
 
 [source,java]
 .src/main/java/org/jhipster/blog/web/rest/PostResource.java
@@ -320,14 +320,16 @@ image::static/openfga-co-author-posts.png[Posts in your blog and a shared blog, 
 
 Notice what you didn't have to change: none of the `@PreAuthorize` checks for viewing, editing, or deleting posts. The rule "`writers of a blog can edit its posts`" lives in one place, the model.
 
-https://github.com/mraible/jhipster9-demo/blob/openfga/src/test/java/org/jhipster/blog/web/rest/BlogCoAuthorIT.java[`BlogCoAuthorIT.java`] tests the whole flow: sharing a blog, writing and editing posts as a co-author, being denied when changing the blog, and losing access when removed.
+NOTE: Because post `editor` comes from the blog's `writer` relation, co-authors can edit and delete _any_ post in the blog, including the owner's. If you only want them to manage their own posts, add an `author` relation to `post` and define its `editor` as `author or editor from parent`.
+
+https://github.com/mraible/jhipster9-demo/blob/openfga/src/test/java/org/jhipster/blog/web/rest/BlogCoAuthorIT.java[`BlogCoAuthorIT.java`] tests the whole flow: sharing a blog, writing and editing posts as a co-author, being denied when changing the blog, and losing access when removed. It also makes sure new blogs always belong to the current user, posts need a blog, and a failed blog delete doesn't remove the owner's tuple.
 
 == Things to Know Before You Ship
 
 OpenFGA moves authorization out of your code, but it also adds a service and a second source of truth. Here's what I ran into while building this.
 
 * *Existing data has no tuples.* If you add OpenFGA to an app with data, owners can't see their own blogs until you backfill tuples (for example, with a one-time job that writes an `owner` tuple for every blog).
-* *Two writes, one transaction.* The resources save to the database, then write to OpenFGA. If the OpenFGA write fails, the exception rolls back the database transaction. If the database commit fails after the tuple is written, you're left with a stray tuple. That's harmless here, because IDs aren't reused, but keep it in mind.
+* *Two writes, one transaction.* The resources save to the database, then write to OpenFGA. If the OpenFGA write fails, the exception rolls back the database transaction. If the database commit fails after the tuple is written, you're left with a stray tuple. That's harmless here, because IDs aren't reused, but keep it in mind. Deletes go the other way: the resources flush the database delete before removing tuples, so a failed delete can't lock anyone out.
 * *It fails closed.* If OpenFGA is down, every check throws an exception and the API returns 500. That's safer than allowing access, but OpenFGA is now as critical as your database. If the in-memory OpenFGA restarts, its store disappears, and the app returns 500 until it restarts too.
 * *403 instead of 404.* Checks run before the method, so missing IDs return 403.
 * *Lists need `listObjects`.* `check` answers one question about one object. For lists, use `listObjects` to get IDs and let the database page through them, like `getAllPosts()` does. That works well for "`blogs I can see`", but doesn't scale to millions of objects per user. See https://openfga.dev/docs/interacting/search-with-permissions[Search with Permissions] for other options.

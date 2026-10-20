@@ -320,19 +320,19 @@ public class FgaTuples {
 
 == Replace the Ownership Checks
 
-Now for the fun part. JHipster already enables method security (`@EnableMethodSecurity` in `SecurityConfiguration`), so you can replace each hand-written check with a `@PreAuthorize` annotation that calls `@fga.check(objectType, objectId, relation, userType, userId)`. When a blog is created, write a tuple that makes the current user its owner. When it's deleted, remove the tuple.
+Now for the fun part. JHipster already enables method security (`@EnableMethodSecurity` in `SecurityConfiguration`), so you can replace each hand-written check with a `@PreAuthorize` annotation that calls `@fga.check(objectType, objectId, relation, userType, userId)`. When a blog is created, write a tuple that makes the current user its owner. When it's deleted, remove the tuple, but only after the database delete is flushed. If the delete fails (for example, because the blog still has posts), the owner keeps access.
 
 [source,diff]
 ----
 diff --git a/src/main/java/org/jhipster/blog/web/rest/BlogResource.java b/src/main/java/org/jhipster/blog/web/rest/BlogResource.java
 --- a/src/main/java/org/jhipster/blog/web/rest/BlogResource.java
 +++ b/src/main/java/org/jhipster/blog/web/rest/BlogResource.java
-@@ -10,16 +10,15 @@ import java.util.Optional;
- import java.util.function.Consumer;
+@@ -11,16 +11,16 @@ import java.util.function.Consumer;
  import org.jhipster.blog.domain.Blog;
  import org.jhipster.blog.repository.BlogRepository;
--import org.jhipster.blog.security.SecurityUtils;
+ import org.jhipster.blog.repository.UserRepository;
 +import org.jhipster.blog.security.FgaTuples;
+ import org.jhipster.blog.security.SecurityUtils;
  import org.jhipster.blog.web.rest.errors.BadRequestAlertException;
  import org.slf4j.Logger;
  import org.slf4j.LoggerFactory;
@@ -346,78 +346,68 @@ diff --git a/src/main/java/org/jhipster/blog/web/rest/BlogResource.java b/src/ma
  import tech.jhipster.web.util.HeaderUtil;
  import tech.jhipster.web.util.ResponseUtil;
  
-@@ -40,8 +39,11 @@ public class BlogResource {
+@@ -43,9 +43,12 @@ public class BlogResource {
  
-     private final BlogRepository blogRepository;
+     private final UserRepository userRepository;
  
--    public BlogResource(BlogRepository blogRepository) {
+-    public BlogResource(BlogRepository blogRepository, UserRepository userRepository) {
 +    private final FgaTuples fgaTuples;
 +
-+    public BlogResource(BlogRepository blogRepository, FgaTuples fgaTuples) {
++    public BlogResource(BlogRepository blogRepository, UserRepository userRepository, FgaTuples fgaTuples) {
          this.blogRepository = blogRepository;
+         this.userRepository = userRepository;
 +        this.fgaTuples = fgaTuples;
      }
  
      /**
-@@ -52,15 +54,14 @@ public class BlogResource {
-      * @throws URISyntaxException if the Location URI syntax is incorrect.
-      */
-     @PostMapping("")
-+    @PreAuthorize("#blog.user?.login == authentication.name")
-     public ResponseEntity<Blog> createBlog(@Valid @RequestBody Blog blog) throws URISyntaxException {
-         LOG.debug("REST request to save Blog : {}", blog);
-         if (blog.getId() != null) {
-             throw new BadRequestAlertException("A new blog cannot already have an ID", ENTITY_NAME, "idexists");
+@@ -63,6 +66,7 @@ public class BlogResource {
          }
--        if (!blog.getUser().getLogin().equals(SecurityUtils.getCurrentUserLogin().orElse(""))) {
--            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
--        }
+         blog.setUser(userRepository.findOneByLogin(SecurityUtils.getCurrentUserLogin().orElseThrow()).orElseThrow());
          blog = blogRepository.save(blog);
 +        fgaTuples.write("user:" + blog.getUser().getLogin(), "owner", "blog:" + blog.getId());
          return ResponseEntity.created(new URI("/api/blogs/" + blog.getId()))
              .headers(HeaderUtil.createEntityCreationAlert(applicationName, true, ENTITY_NAME, blog.getId().toString()))
              .body(blog);
-@@ -77,6 +78,9 @@ public class BlogResource {
+@@ -79,6 +83,7 @@ public class BlogResource {
       * @throws URISyntaxException if the Location URI syntax is incorrect.
       */
      @PutMapping("/{id}")
-+    @PreAuthorize(
-+        "@fga.check('blog', #id, 'editor', 'user', authentication.name) and (#blog.user == null or #blog.user.login == authentication.name)"
-+    )
++    @PreAuthorize("@fga.check('blog', #id, 'editor', 'user', authentication.name)")
      public ResponseEntity<Blog> updateBlog(@PathVariable(value = "id", required = false) final Long id, @Valid @RequestBody Blog blog)
          throws URISyntaxException {
          LOG.debug("REST request to update Blog : {}, {}", id, blog);
-@@ -89,9 +93,6 @@ public class BlogResource {
-         if (!blogRepository.existsById(id)) {
-             throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-         }
--        if (blog.getUser() != null && !blog.getUser().getLogin().equals(SecurityUtils.getCurrentUserLogin().orElse(""))) {
+@@ -91,11 +96,8 @@ public class BlogResource {
+         Blog existingBlog = blogRepository
+             .findById(id)
+             .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+-        if (!isOwner(existingBlog)) {
 -            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
 -        }
+-        blog.setUser(existingBlog.getUser());
  
++        blog.setUser(existingBlog.getUser());
          blog = blogRepository.save(blog);
          return ResponseEntity.ok()
-@@ -111,6 +112,9 @@ public class BlogResource {
+             .headers(HeaderUtil.createEntityUpdateAlert(applicationName, true, ENTITY_NAME, blog.getId().toString()))
+@@ -114,6 +116,7 @@ public class BlogResource {
       * @throws URISyntaxException if the Location URI syntax is incorrect.
       */
      @PatchMapping(value = "/{id}", consumes = { "application/json", "application/merge-patch+json" })
-+    @PreAuthorize(
-+        "@fga.check('blog', #id, 'editor', 'user', authentication.name) and (#blog.user == null or #blog.user.login == authentication.name)"
-+    )
++    @PreAuthorize("@fga.check('blog', #id, 'editor', 'user', authentication.name)")
      public ResponseEntity<Blog> partialUpdateBlog(
          @PathVariable(value = "id", required = false) final Long id,
          @NotNull @RequestBody Blog blog
-@@ -125,9 +129,6 @@ public class BlogResource {
-         if (!blogRepository.existsById(id)) {
-             throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
-         }
--        if (blog.getUser() != null && !blog.getUser().getLogin().equals(SecurityUtils.getCurrentUserLogin().orElse(""))) {
+@@ -128,9 +131,6 @@ public class BlogResource {
+         Blog existingBlog = blogRepository
+             .findById(id)
+             .orElseThrow(() -> new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound"));
+-        if (!isOwner(existingBlog)) {
 -            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
 -        }
  
-         Optional<Blog> result = blogRepository
-             .findById(blog.getId())
-@@ -168,14 +169,10 @@ public class BlogResource {
+         updateIfPresent(existingBlog::setName, blog.getName());
+         updateIfPresent(existingBlog::setHandle, blog.getHandle());
+@@ -164,12 +164,10 @@ public class BlogResource {
       * @return the {@link ResponseEntity} with status {@code 200 (OK)} and with body the blog, or with status {@code 404 (Not Found)}.
       */
      @GetMapping("/{id}")
@@ -425,43 +415,50 @@ diff --git a/src/main/java/org/jhipster/blog/web/rest/BlogResource.java b/src/ma
      public ResponseEntity<Blog> getBlog(@PathVariable("id") Long id) {
          LOG.debug("REST request to get Blog : {}", id);
          Optional<Blog> blog = blogRepository.findOneWithEagerRelationships(id);
--        if (blog.isPresent()) {
--            blog.filter(
--                b -> b.getUser() != null && b.getUser().getLogin().equals(SecurityUtils.getCurrentUserLogin().orElse(""))
--            ).orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN));
+-        if (!blog.map(this::isOwner).orElse(true)) {
+-            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
 -        }
          return ResponseUtil.wrapOrNotFound(blog);
      }
  
-@@ -186,12 +183,12 @@ public class BlogResource {
+@@ -180,21 +178,18 @@ public class BlogResource {
       * @return the {@link ResponseEntity} with status {@code 204 (NO_CONTENT)}.
       */
      @DeleteMapping("/{id}")
 +    @PreAuthorize("@fga.check('blog', #id, 'editor', 'user', authentication.name)")
      public ResponseEntity<Void> deleteBlog(@PathVariable("id") Long id) {
          LOG.debug("REST request to delete Blog : {}", id);
--        Optional<Blog> blog = blogRepository.findById(id);
--        blog.filter(b -> b.getUser() != null && b.getUser().getLogin().equals(SecurityUtils.getCurrentUserLogin().orElse(""))).orElseThrow(
--            () -> new ResponseStatusException(HttpStatus.FORBIDDEN)
--        );
-+        blogRepository
-+            .findOneWithEagerRelationships(id)
-+            .ifPresent(blog -> fgaTuples.delete("user:" + blog.getUser().getLogin(), "owner", "blog:" + id));
+-        if (!blogRepository.findById(id).map(this::isOwner).orElse(false)) {
+-            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+-        }
++        Optional<String> owner = blogRepository.findById(id).map(blog -> blog.getUser().getLogin());
          blogRepository.deleteById(id);
++        blogRepository.flush();
++        owner.ifPresent(login -> fgaTuples.delete("user:" + login, "owner", "blog:" + id));
          return ResponseEntity.noContent()
              .headers(HeaderUtil.createEntityDeletionAlert(applicationName, true, ENTITY_NAME, id.toString()))
+             .build();
+     }
+ 
+-    private boolean isOwner(Blog blog) {
+-        return blog.getUser() != null && blog.getUser().getLogin().equals(SecurityUtils.getCurrentUserLogin().orElse(""));
+-    }
+-
+     private <T> void updateIfPresent(Consumer<T> setter, T value) {
+         if (value != null) {
+             setter.accept(value);
 ----
 
-Creating a blog is the one place OpenFGA can't help, because there's no blog to ask about yet. A simple SpEL check makes sure you can only create blogs for yourself.
+Creating a blog is the one place OpenFGA can't help, because there's no blog to ask about yet. Instead, `createBlog()` ignores any user in the request and makes the current user the owner. Updates keep the existing owner, so ownership can't be changed through the API.
 
-`PostResource` gets the same treatment, with a `parent` tuple linking each post to its blog. Creating a post requires `editor` on the blog, and moving a post to another blog replaces its `parent` tuple.
+`PostResource` gets the same treatment, with a `parent` tuple linking each post to its blog. Creating a post requires `editor` on the blog, posts without a blog are rejected with a 400, and moving a post to another blog replaces its `parent` tuple.
 
 [source,java]
 .src/main/java/org/jhipster/blog/web/rest/PostResource.java
 ----
     @PutMapping("/{id}")
     @PreAuthorize(
-        "@fga.check('post', #id, 'editor', 'user', authentication.name) and (#post.blog == null or @fga.check('blog', #post.blog.id, 'editor', 'user', authentication.name))"
+        "@fga.check('post', #id, 'editor', 'user', authentication.name) and (#post.blog?.id == null or @fga.check('blog', #post.blog.id, 'editor', 'user', authentication.name))"
     )
     public ResponseEntity<Post> updatePost(@PathVariable(value = "id", required = false) final Long id, @Valid @RequestBody Post post)
         throws URISyntaxException {
@@ -474,6 +471,9 @@ Creating a blog is the one place OpenFGA can't help, because there's no blog to 
         }
         if (!postRepository.existsById(id)) {
             throw new BadRequestAlertException("Entity not found", ENTITY_NAME, "idnotfound");
+        }
+        if (post.getBlog() == null || post.getBlog().getId() == null) {
+            throw new BadRequestAlertException("A post must belong to a blog", ENTITY_NAME, "blognull");
         }
 
         Long oldBlogId = postRepository
@@ -620,7 +620,7 @@ Creating a post now requires `writer` on its blog instead of `editor`. That's th
 [source,java]
 ----
     @PostMapping("")
-    @PreAuthorize("(#post.blog == null or @fga.check('blog', #post.blog.id, 'writer', 'user', authentication.name))")
+    @PreAuthorize("#post.blog?.id == null or @fga.check('blog', #post.blog.id, 'writer', 'user', authentication.name)")
 ----
 
 Adding a co-author is one tuple. Add endpoints to `BlogResource` to list, add, and remove them. Only the blog's owner (its `editor`) can change them.
@@ -674,6 +674,7 @@ When a blog is deleted, delete all its tuples, including co-authors.
 [source,java]
 ----
         blogRepository.deleteById(id);
+        blogRepository.flush();
         fgaTuples.read("blog:" + id, null).forEach(tuple -> fgaTuples.delete(tuple.getUser(), tuple.getRelation(), tuple.getObject()));
 ----
 
@@ -791,14 +792,16 @@ image::static/openfga-co-author-posts.png[Posts in your blog and a shared blog, 
 
 Notice what you didn't have to change: none of the `@PreAuthorize` checks for viewing, editing, or deleting posts. The rule "`writers of a blog can edit its posts`" lives in one place, the model.
 
-https://github.com/mraible/jhipster9-demo/blob/openfga/src/test/java/org/jhipster/blog/web/rest/BlogCoAuthorIT.java[`BlogCoAuthorIT.java`] tests the whole flow: sharing a blog, writing and editing posts as a co-author, being denied when changing the blog, and losing access when removed.
+NOTE: Because post `editor` comes from the blog's `writer` relation, co-authors can edit and delete _any_ post in the blog, including the owner's. If you only want them to manage their own posts, add an `author` relation to `post` and define its `editor` as `author or editor from parent`.
+
+https://github.com/mraible/jhipster9-demo/blob/openfga/src/test/java/org/jhipster/blog/web/rest/BlogCoAuthorIT.java[`BlogCoAuthorIT.java`] tests the whole flow: sharing a blog, writing and editing posts as a co-author, being denied when changing the blog, and losing access when removed. It also makes sure new blogs always belong to the current user, posts need a blog, and a failed blog delete doesn't remove the owner's tuple.
 
 == Things to Know Before You Ship
 
 OpenFGA moves authorization out of your code, but it also adds a service and a second source of truth. Here's what I ran into while building this.
 
 * *Existing data has no tuples.* If you add OpenFGA to an app with data, owners can't see their own blogs until you backfill tuples (for example, with a one-time job that writes an `owner` tuple for every blog).
-* *Two writes, one transaction.* The resources save to the database, then write to OpenFGA. If the OpenFGA write fails, the exception rolls back the database transaction. If the database commit fails after the tuple is written, you're left with a stray tuple. That's harmless here, because IDs aren't reused, but keep it in mind.
+* *Two writes, one transaction.* The resources save to the database, then write to OpenFGA. If the OpenFGA write fails, the exception rolls back the database transaction. If the database commit fails after the tuple is written, you're left with a stray tuple. That's harmless here, because IDs aren't reused, but keep it in mind. Deletes go the other way: the resources flush the database delete before removing tuples, so a failed delete can't lock anyone out.
 * *It fails closed.* If OpenFGA is down, every check throws an exception and the API returns 500. That's safer than allowing access, but OpenFGA is now as critical as your database. If the in-memory OpenFGA restarts, its store disappears, and the app returns 500 until it restarts too.
 * *403 instead of 404.* Checks run before the method, so missing IDs return 403.
 * *Lists need `listObjects`.* `check` answers one question about one object. For lists, use `listObjects` to get IDs and let the database page through them, like `getAllPosts()` does. That works well for "`blogs I can see`", but doesn't scale to millions of objects per user. See https://openfga.dev/docs/interacting/search-with-permissions[Search with Permissions] for other options.

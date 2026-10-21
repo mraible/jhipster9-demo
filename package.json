@@ -112,7 +112,7 @@
     "@cypress/schematic": "6.0.0",
     "@eslint/js": "10.0.1",
     "@types/folder-hash": "4.0.4",
-    "@types/node": "22.20.2",
+    "@types/node": "26.6.5",
     "@vitest/coverage-v8": "4.1.11",
     "angular-eslint": "22.6.0",
     "axios": "1.20.0",

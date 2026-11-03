@@ -12,7 +12,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>4.1.1</version>
+        <version>4.1.2</version>
         <relativePath/>
         <!-- lookup parent from repository -->
     </parent>
@@ -36,6 +36,9 @@
         <m2e.apt.activation>jdt_apt</m2e.apt.activation>
         <run.addResources>false</run.addResources>
         <spring-boot.version>${project.parent.version}</spring-boot.version>
+        <!-- Spring Boot 4.1.2 manages Jackson 3.1.7 and 2.21.7, which have CVE-2026-110879 -->
+        <jackson-bom.version>3.1.8</jackson-bom.version>
+        <jackson-2-bom.version>2.21.8</jackson-2-bom.version>
         <archunit-junit5.version>1.5.1</archunit-junit5.version>
         <checkstyle.version>14.3.0</checkstyle.version>
         <checksum-maven-plugin.version>1.11</checksum-maven-plugin.version>

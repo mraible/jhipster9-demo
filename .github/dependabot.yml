@@ -17,6 +17,10 @@ updates:
         patterns:
           - '@angular/*'
           - '@angular-devkit/*'
+      vitest:
+        patterns:
+          - 'vitest'
+          - '@vitest/*'
       npm-minor-and-patch:
         patterns:
           - '*'

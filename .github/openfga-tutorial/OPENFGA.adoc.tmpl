@@ -123,11 +123,11 @@ Add the https://github.com/openfga/spring-boot-starter[OpenFGA Spring Boot start
         <dependency>
             <groupId>dev.openfga</groupId>
             <artifactId>openfga-spring-boot-starter</artifactId>
-            <version>0.4.1</version>
+            <version>0.5.0</version>
         </dependency>
 ----
 
-NOTE: Version 0.4.1 is built for Spring Boot 3 and Jackson 2. It works with Spring Boot 4.1, but it adds Jackson 2 to your classpath next to Spring Boot's Jackson 3. A Spring Boot 4 version is in progress in https://github.com/openfga/spring-boot-starter/pull/201[openfga/spring-boot-starter#201].
+NOTE: Version 0.5.0 is the first release built for Spring Boot 4.1. If you're still on Spring Boot 3, use the `0.4.x` line.
 
 Then, tell it where OpenFGA is in `src/main/resources/config/application.yml`.
 
@@ -182,7 +182,7 @@ IMPORTANT: Blogs and posts you created before this step have no tuples, so you'l
 
 == Run Integration Tests against OpenFGA
 
-The integration tests need an OpenFGA server too. Add the Testcontainers module for OpenFGA to your `pom.xml`. Its version comes from Spring Boot's dependency management.
+The integration tests need an OpenFGA server too. Add the Testcontainers module for OpenFGA and Spring Boot's Testcontainers support to your `pom.xml`. Their versions come from Spring Boot's dependency management.
 
 [source,xml]
 .pom.xml
@@ -192,9 +192,14 @@ The integration tests need an OpenFGA server too. Add the Testcontainers module 
             <artifactId>testcontainers-openfga</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
 ----
 
-Create a test configuration that starts the container and points the starter at it.
+Create a test configuration that starts the container. The starter supports `@ServiceConnection`, so it connects to the container without any `openfga.api-url` in your test configuration.
 
 [source,java]
 .src/test/java/org/jhipster/blog/config/OpenFgaTestContainer.java
@@ -207,15 +212,6 @@ Add it to the classes in `src/test/java/org/jhipster/blog/IntegrationTest.java`,
 [source,java]
 ----
 @@lines openfga~1 src/test/java/org/jhipster/blog/IntegrationTest.java :: ^@SpringBootTest :: ^\)$@@
-----
-
-The starter only creates its beans when `openfga.api-url` is set, and the tests have their own `application.yml`. Add a placeholder to `src/test/resources/config/application.yml`. `OpenFgaTestContainer` replaces it with the container's URL.
-
-[source,yaml]
-----
-# Overridden with the Testcontainers URL by OpenFgaTestContainer
-openfga:
-  api-url: http://localhost:8090
 ----
 
 The generated tests save entities with repositories, so they don't create any tuples. Add a helper to `BlogResourceIT` that saves a blog and makes `user` its owner, and use it in place of `blogRepository.saveAndFlush(blog)`.

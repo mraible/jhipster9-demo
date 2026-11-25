@@ -12,7 +12,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>4.1.2</version>
+        <version>4.2.0</version>
         <relativePath/>
         <!-- lookup parent from repository -->
     </parent>
@@ -66,10 +66,10 @@
         <profile.tls/>
         <properties-maven-plugin.version>1.4.0</properties-maven-plugin.version>
         <resource.delimiter>@</resource.delimiter>
-        <sonar-maven-plugin.version>5.8.0.7211</sonar-maven-plugin.version>
-        <spotless-maven-plugin.version>3.11.0</spotless-maven-plugin.version>
+        <sonar-maven-plugin.version>5.9.0.7382</sonar-maven-plugin.version>
+        <spotless-maven-plugin.version>3.12.0</spotless-maven-plugin.version>
         <spring.profiles.active>dev</spring.profiles.active>
-        <springdoc-openapi-starter-webmvc-api.version>3.2.0</springdoc-openapi-starter-webmvc-api.version>
+        <springdoc-openapi-starter-webmvc-api.version>3.2.1</springdoc-openapi-starter-webmvc-api.version>
     </properties>
 
     <dependencies>
